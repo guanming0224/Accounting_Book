@@ -154,9 +154,17 @@ export class BotHandlers {
         newName
       );
 
-      this.resetSession(session);
+      session.step = 'select_rename_ledger';
+      session.selectedRenameLedger = undefined;
       await cacheManager.setUserSession(userId, session);
-      this.sendKeyboard(chatId, `帳本名稱已更新為「${ledger.name}」。`, MAIN_MENU);
+      const ledgers = await ledgerModule.getUserLedgers(userId);
+      const buttons = ledgers.map((l) => [l.name]);
+      buttons.push(['取消']);
+      this.sendKeyboard(
+        chatId,
+        `帳本名稱已更新為「${ledger.name}」。\n\n請選擇要改名的帳本：`,
+        buttons
+      );
     } catch (err) {
       const error = err instanceof Error ? err.message : '';
       const message =
@@ -372,15 +380,60 @@ export class BotHandlers {
       return;
     }
 
-    // Create transaction
+    session.selectedAmount = amount;
+    session.step = 'ask_note';
+    await cacheManager.setUserSession(userId, session);
+
+    this.sendKeyboard(chatId, '是否要寫備註？', [['寫備註', '不用備註'], ['取消']]);
+  }
+
+  async handleNoteDecision(
+    chatId: number,
+    userId: number,
+    decision: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session) return;
+
+    if (decision === '不用備註') {
+      return this.createTransactionFromSession(chatId, userId, session, '');
+    }
+
+    if (decision === '寫備註') {
+      session.step = 'input_note';
+      await cacheManager.setUserSession(userId, session);
+      this.sendKeyboard(chatId, '請輸入備註：', [['取消']]);
+      return;
+    }
+
+    this.sendKeyboard(chatId, '請選擇是否要寫備註：', [['寫備註', '不用備註'], ['取消']]);
+  }
+
+  async handleNoteInput(
+    chatId: number,
+    userId: number,
+    note: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session) return;
+
+    return this.createTransactionFromSession(chatId, userId, session, note.trim());
+  }
+
+  private async createTransactionFromSession(
+    chatId: number,
+    userId: number,
+    session: UserSession,
+    description: string
+  ): Promise<void> {
     const transaction = await transactionModule.createTransaction(
       session.selectedLedger!,
       session.selectedType!,
-      amount,
+      session.selectedAmount!,
       session.selectedCategory!,
       session.selectedSubcategory!,
       session.selectedPayment!,
-      ''
+      description
     );
 
     // Try to append to Google Sheets (non-blocking)
@@ -395,7 +448,9 @@ export class BotHandlers {
       session.selectedType === 'income' ? '進帳' : '支出'
     }\n帳本：${ledgerName}\n類別：${
       session.selectedCategory
-    }\n子類別：${session.selectedSubcategory}\n金額：${amount}\n支付方式：${paymentName}`;
+    }\n子類別：${session.selectedSubcategory}\n金額：${
+      session.selectedAmount
+    }\n支付方式：${paymentName}\n備註：${description || '無'}`;
 
     this.sendKeyboard(chatId, message, MAIN_MENU);
 
@@ -412,6 +467,7 @@ export class BotHandlers {
     session.selectedCategory = undefined;
     session.selectedSubcategory = undefined;
     session.selectedPayment = undefined;
+    session.selectedAmount = undefined;
   }
 
   async handleCancel(chatId: number, userId: number): Promise<void> {
@@ -493,6 +549,10 @@ export class BotHandlers {
             return this.handlePaymentMethodSelection(chatId, userId, text);
           case 'input_amount':
             return this.handleAmountInput(chatId, userId, text);
+          case 'ask_note':
+            return this.handleNoteDecision(chatId, userId, text);
+          case 'input_note':
+            return this.handleNoteInput(chatId, userId, text);
           default:
             return this.handleStart(chatId, userId, username);
         }

@@ -42,6 +42,7 @@ export interface UserSession {
   selectedCategory?: string;
   selectedSubcategory?: string;
   selectedPayment?: PaymentMethod;
+  selectedAmount?: number;
 }
 
 export type SessionStep =
@@ -52,6 +53,8 @@ export type SessionStep =
   | 'select_subcategory'
   | 'select_payment'
   | 'input_amount'
+  | 'ask_note'
+  | 'input_note'
   | 'confirm'
   | 'select_query_ledger'
   | 'select_rename_ledger'
