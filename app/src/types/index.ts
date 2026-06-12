@@ -37,6 +37,7 @@ export interface UserSession {
   userId: number;
   step: SessionStep;
   selectedLedger?: number;
+  selectedRenameLedger?: number;
   selectedType?: TransactionType;
   selectedCategory?: string;
   selectedSubcategory?: string;
@@ -52,4 +53,6 @@ export type SessionStep =
   | 'select_payment'
   | 'input_amount'
   | 'confirm'
-  | 'select_query_ledger';
+  | 'select_query_ledger'
+  | 'select_rename_ledger'
+  | 'input_ledger_name';
