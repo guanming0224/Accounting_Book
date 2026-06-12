@@ -35,8 +35,39 @@ async function main() {
 
     console.log('✅ Accounting Bot is running!');
 
-    // Graceful shutdown
+    // Graceful shutdown. Require two Ctrl+C presses to avoid accidental exits.
+    let sigintCount = 0;
+    let sigintResetTimer: ReturnType<typeof setTimeout> | undefined;
+    let isShuttingDown = false;
+
     process.on('SIGINT', async () => {
+      if (isShuttingDown) {
+        return;
+      }
+
+      sigintCount += 1;
+
+      if (sigintCount < 2) {
+        console.log('\nPress Ctrl+C again within 5 seconds to stop the bot.');
+
+        if (sigintResetTimer) {
+          clearTimeout(sigintResetTimer);
+        }
+
+        sigintResetTimer = setTimeout(() => {
+          sigintCount = 0;
+          sigintResetTimer = undefined;
+        }, 5000);
+
+        return;
+      }
+
+      isShuttingDown = true;
+
+      if (sigintResetTimer) {
+        clearTimeout(sigintResetTimer);
+      }
+
       console.log('\n🛑 Shutting down gracefully...');
       await botHandlers.stop();
       await cacheManager.disconnect();
