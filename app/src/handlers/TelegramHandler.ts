@@ -1,5 +1,5 @@
 import TelegramBot from 'telegram-bot-api';
-import { CATEGORIES, PAYMENT_METHODS } from '../constants';
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS } from '../constants';
 import { UserSession } from '../types';
 import { cacheManager } from '../db/cache';
 import { userModule } from '../modules/user/user';
@@ -32,6 +32,10 @@ export class BotHandlers {
       .catch((err) => console.error('Failed to send message:', err));
   }
 
+  private getCategoriesForSession(session: UserSession) {
+    return session.selectedType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  }
+
   async handleStart(chatId: number, userId: number, username: string): Promise<void> {
     // Get or create user
     await userModule.getOrCreateUser(userId, username);
@@ -60,7 +64,10 @@ export class BotHandlers {
   }
 
   async handleHelp(chatId: number): Promise<void> {
-    const categoryLines = Object.values(CATEGORIES)
+    const expenseCategoryLines = Object.values(EXPENSE_CATEGORIES)
+      .map((c) => `• ${c.name}（${c.description}）：${c.subcategories.join('、')}`)
+      .join('\n');
+    const incomeCategoryLines = Object.values(INCOME_CATEGORIES)
       .map((c) => `• ${c.name}（${c.description}）：${c.subcategories.join('、')}`)
       .join('\n');
     const message =
@@ -68,7 +75,8 @@ export class BotHandlers {
       '記帳流程：記帳 → 選擇進出 → 選擇帳本 → 選擇類別 → 選擇子類別 → 選擇支付方式 → 輸入金額\n\n' +
       '查詢：點選「查詢」後選擇帳本，可查看該帳本的收支統計與最近紀錄。\n\n' +
       '設定：點選「設定」→「修改帳本名稱」，可自訂帳本名稱。\n\n' +
-      `類別總覽：\n${categoryLines}\n\n` +
+      `支出類別：\n${expenseCategoryLines}\n\n` +
+      `進帳類別：\n${incomeCategoryLines}\n\n` +
       `支付方式：${Object.values(PAYMENT_METHODS).join('、')}\n\n` +
       '隨時可輸入「取消」回到主選單。';
     this.sendKeyboard(chatId, message, MAIN_MENU);
@@ -279,7 +287,7 @@ export class BotHandlers {
     session.step = 'select_category';
     await cacheManager.setUserSession(userId, session);
 
-    const categories = Object.keys(CATEGORIES);
+    const categories = Object.keys(this.getCategoriesForSession(session));
     const buttons = categories.map((c) => [c]);
     buttons.push(['取消']);
 
@@ -294,9 +302,10 @@ export class BotHandlers {
     const session = await cacheManager.getUserSession(userId);
     if (!session) return;
 
-    const categoryData = CATEGORIES[category as keyof typeof CATEGORIES];
+    const categories = this.getCategoriesForSession(session);
+    const categoryData = categories[category as keyof typeof categories];
     if (!categoryData) {
-      const buttons = Object.keys(CATEGORIES).map((c) => [c]);
+      const buttons = Object.keys(categories).map((c) => [c]);
       buttons.push(['取消']);
       this.sendKeyboard(chatId, '無效的類別，請重新選擇：', buttons);
       return;
@@ -321,8 +330,9 @@ export class BotHandlers {
     if (!session) return;
 
     // Validate the subcategory belongs to the chosen category.
+    const categories = this.getCategoriesForSession(session);
     const categoryData = session.selectedCategory
-      ? CATEGORIES[session.selectedCategory as keyof typeof CATEGORIES]
+      ? categories[session.selectedCategory as keyof typeof categories]
       : undefined;
     if (!categoryData || !categoryData.subcategories.includes(subcategory)) {
       const buttons = (categoryData?.subcategories ?? []).map((s) => [s]);

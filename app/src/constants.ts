@@ -1,5 +1,13 @@
 // Category definitions for Taiwan accounting system
-export const CATEGORIES = {
+export interface CategoryDefinition {
+  name: string;
+  description: string;
+  subcategories: string[];
+}
+
+export type CategoryMap = Record<string, CategoryDefinition>;
+
+export const EXPENSE_CATEGORIES: CategoryMap = {
   食: {
     name: '食',
     description: '維持生命活動機能的能量提取',
@@ -31,6 +39,31 @@ export const CATEGORIES = {
     subcategories: ['旅遊', '健身'],
   },
 };
+
+export const INCOME_CATEGORIES: CategoryMap = {
+  '薪資收入 (Earned)': {
+    name: '薪資收入 (Earned)',
+    description: '受僱或投入勞務取得的收入',
+    subcategories: ['月薪', '年終獎金', '加班費', '兼職外快'],
+  },
+  '營利與業務收入 (Business)': {
+    name: '營利與業務收入 (Business)',
+    description: '經營事業或提供服務取得的收入',
+    subcategories: ['開店做生意', '網拍', '自行創業', '接案抽成'],
+  },
+  '理財與投資收入 (Portfolio)': {
+    name: '理財與投資收入 (Portfolio)',
+    description: '金融商品或投資交易產生的收入',
+    subcategories: ['股票股利', '基金配息', '買賣價差（資本利得）'],
+  },
+  '資產與衍生收入 (Passive)': {
+    name: '資產與衍生收入 (Passive)',
+    description: '資產授權、出租或權利金產生的收入',
+    subcategories: ['房子出租的租金', '專利權益金', '著作權版稅'],
+  },
+};
+
+export const CATEGORIES = EXPENSE_CATEGORIES;
 
 export const PAYMENT_METHODS = {
   cash: '現金',
