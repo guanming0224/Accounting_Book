@@ -698,32 +698,10 @@ export class BotHandlers {
     }
 
     session.selectedAmount = amount;
-    session.step = 'ask_note';
+    session.step = 'input_note';
     await cacheManager.setUserSession(userId, session);
 
-    this.sendKeyboard(chatId, '是否要寫備註？', this.withNavigation([['寫備註', '不用備註']]));
-  }
-
-  async handleNoteDecision(
-    chatId: number,
-    userId: number,
-    decision: string
-  ): Promise<void> {
-    const session = await cacheManager.getUserSession(userId);
-    if (!session) return;
-
-    if (decision === '不用備註') {
-      return this.createTransactionFromSession(chatId, userId, session, '');
-    }
-
-    if (decision === '寫備註') {
-      session.step = 'input_note';
-      await cacheManager.setUserSession(userId, session);
-      this.sendKeyboard(chatId, '請輸入備註：', [NAVIGATION_BUTTONS]);
-      return;
-    }
-
-    this.sendKeyboard(chatId, '請選擇是否要寫備註：', this.withNavigation([['寫備註', '不用備註']]));
+    this.sendKeyboard(chatId, '請輸入備註，或按「略過」不填備註：', [['略過'], NAVIGATION_BUTTONS]);
   }
 
   async handleNoteInput(
@@ -733,6 +711,10 @@ export class BotHandlers {
   ): Promise<void> {
     const session = await cacheManager.getUserSession(userId);
     if (!session) return;
+
+    if (note === '略過') {
+      return this.createTransactionFromSession(chatId, userId, session, '');
+    }
 
     return this.createTransactionFromSession(chatId, userId, session, note.trim());
   }
@@ -917,20 +899,11 @@ export class BotHandlers {
           this.itemButtons(await settingsModule.getPaymentMethods(userId))
         );
 
-      case 'ask_note':
+      case 'input_note':
         session.step = 'input_amount';
         session.selectedAmount = undefined;
         await cacheManager.setUserSession(userId, session);
         return this.sendKeyboard(chatId, '請輸入金額：', [NAVIGATION_BUTTONS]);
-
-      case 'input_note':
-        session.step = 'ask_note';
-        await cacheManager.setUserSession(userId, session);
-        return this.sendKeyboard(
-          chatId,
-          '是否要寫備註？',
-          this.withNavigation([['寫備註', '不用備註']])
-        );
 
       default:
         return this.showMainMenu(chatId, userId, '請選擇您要進行的操作：');
@@ -1042,8 +1015,6 @@ export class BotHandlers {
             return this.handlePaymentMethodSelection(chatId, userId, text);
           case 'input_amount':
             return this.handleAmountInput(chatId, userId, text);
-          case 'ask_note':
-            return this.handleNoteDecision(chatId, userId, text);
           case 'input_note':
             return this.handleNoteInput(chatId, userId, text);
           default:

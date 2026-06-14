@@ -60,7 +60,6 @@ export type SessionStep =
   | 'select_subcategory'
   | 'select_payment'
   | 'input_amount'
-  | 'ask_note'
   | 'input_note'
   | 'confirm'
   | 'select_query_ledger'
