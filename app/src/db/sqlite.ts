@@ -32,11 +32,13 @@ export class Database {
             ledgerId INTEGER PRIMARY KEY AUTOINCREMENT,
             userId INTEGER NOT NULL,
             name TEXT NOT NULL,
+            isArchived INTEGER DEFAULT 0,
             createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
             updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (userId) REFERENCES users(userId)
           )
         `);
+        this.db.run(`ALTER TABLE ledgers ADD COLUMN isArchived INTEGER DEFAULT 0`, () => {});
 
         // Transactions table
         this.db.run(`

@@ -7,6 +7,7 @@ export type SettingTarget =
   | 'expense_subcategory'
   | 'income_subcategory';
 export type SettingAction = 'add' | 'rename' | 'delete';
+export type LedgerAction = 'add' | 'rename' | 'archive';
 
 export interface User {
   userId: number;
@@ -19,6 +20,7 @@ export interface Ledger {
   ledgerId: number;
   userId: number;
   name: string;
+  isArchived?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -40,6 +42,7 @@ export interface UserSession {
   step: SessionStep;
   selectedLedger?: number;
   selectedRenameLedger?: number;
+  selectedLedgerAction?: LedgerAction;
   selectedType?: TransactionType;
   selectedCategory?: string;
   selectedSubcategory?: string;
@@ -63,7 +66,9 @@ export type SessionStep =
   | 'input_note'
   | 'confirm'
   | 'select_query_ledger'
+  | 'ledger_settings'
   | 'select_rename_ledger'
+  | 'select_archive_ledger'
   | 'input_ledger_name'
   | 'settings_select_target'
   | 'settings_select_category'

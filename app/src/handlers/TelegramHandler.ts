@@ -11,12 +11,17 @@ import { googleSheetsIntegration } from '../integrations/GoogleSheets';
 const MAIN_MENU: string[][] = [['記帳', '查詢'], ['設定', '說明']];
 const NAVIGATION_BUTTONS = ['上一步', '回主畫面'];
 const SETTINGS_MENU: string[][] = [
-  ['修改帳本名稱'],
+  ['帳本設定'],
   ['付款方式設定'],
   ['支出類別設定', '收入類別設定'],
   ['支出子類別設定', '收入子類別設定'],
   ['備份目前設定'],
   ['恢復備份設定', '恢復初始設定'],
+  NAVIGATION_BUTTONS,
+];
+const LEDGER_SETTINGS_MENU: string[][] = [
+  ['新增帳本'],
+  ['修改帳本名稱', '封存帳本'],
   NAVIGATION_BUTTONS,
 ];
 const SETTING_ACTION_MENU: string[][] = [['新增', '修改', '刪除'], NAVIGATION_BUTTONS];
@@ -146,6 +151,42 @@ export class BotHandlers {
     const session: UserSession = { userId, step: 'settings' };
     await cacheManager.setUserSession(userId, session);
     this.sendKeyboard(chatId, '請選擇設定項目：', SETTINGS_MENU);
+  }
+
+  async handleLedgerSettings(chatId: number, userId: number): Promise<void> {
+    const session: UserSession = { userId, step: 'ledger_settings' };
+    await cacheManager.setUserSession(userId, session);
+    this.sendKeyboard(chatId, '請選擇帳本設定：', LEDGER_SETTINGS_MENU);
+  }
+
+  async handleCreateLedgerCommand(chatId: number, userId: number, username: string): Promise<void> {
+    await userModule.getOrCreateUser(userId, username);
+    const session: UserSession = {
+      userId,
+      step: 'input_ledger_name',
+      selectedLedgerAction: 'add',
+    };
+    await cacheManager.setUserSession(userId, session);
+    this.sendKeyboard(chatId, '請輸入新帳本名稱：', [NAVIGATION_BUTTONS]);
+  }
+
+  async handleArchiveLedgerCommand(
+    chatId: number,
+    userId: number,
+    username: string
+  ): Promise<void> {
+    await userModule.getOrCreateUser(userId, username);
+    await ledgerModule.createDefaultLedgers(userId);
+
+    const session: UserSession = {
+      userId,
+      step: 'select_archive_ledger',
+      selectedLedgerAction: 'archive',
+    };
+    await cacheManager.setUserSession(userId, session);
+
+    const ledgers = await ledgerModule.getUserLedgers(userId);
+    this.sendKeyboard(chatId, '請選擇要封存的帳本：', this.ledgerButtons(ledgers));
   }
 
   async handleBackupSettings(chatId: number, userId: number): Promise<void> {
@@ -433,7 +474,11 @@ export class BotHandlers {
     await userModule.getOrCreateUser(userId, username);
     await ledgerModule.createDefaultLedgers(userId);
 
-    const session: UserSession = { userId, step: 'select_rename_ledger' };
+    const session: UserSession = {
+      userId,
+      step: 'select_rename_ledger',
+      selectedLedgerAction: 'rename',
+    };
     await cacheManager.setUserSession(userId, session);
 
     const ledgers = await ledgerModule.getUserLedgers(userId);
@@ -460,10 +505,48 @@ export class BotHandlers {
     }
 
     session.selectedRenameLedger = selectedLedger.ledgerId;
+    session.selectedLedgerAction = 'rename';
     session.step = 'input_ledger_name';
     await cacheManager.setUserSession(userId, session);
 
     this.sendKeyboard(chatId, `請輸入「${selectedLedger.name}」的新名稱：`, [NAVIGATION_BUTTONS]);
+  }
+
+  async handleArchiveLedgerSelection(
+    chatId: number,
+    userId: number,
+    ledgerName: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session) return;
+
+    const ledgers = await ledgerModule.getUserLedgers(userId);
+    const selectedLedger = ledgers.find((l) => l.name === ledgerName);
+    if (!selectedLedger) {
+      this.sendKeyboard(chatId, '找不到該帳本，請重新選擇：', [
+        ...this.ledgerButtons(ledgers),
+      ]);
+      return;
+    }
+
+    try {
+      await ledgerModule.archiveLedger(userId, selectedLedger.ledgerId);
+      const activeLedgers = await ledgerModule.getUserLedgers(userId);
+      session.step = 'select_archive_ledger';
+      session.selectedLedgerAction = 'archive';
+      await cacheManager.setUserSession(userId, session);
+      this.sendKeyboard(
+        chatId,
+        `已封存「${selectedLedger.name}」。\n\n請選擇要封存的帳本：`,
+        this.ledgerButtons(activeLedgers)
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message === 'LEDGER_ARCHIVE_LAST_ACTIVE'
+          ? '至少需要保留一個未封存帳本。'
+          : '封存帳本失敗，請重新選擇。';
+      this.sendKeyboard(chatId, message, this.ledgerButtons(ledgers));
+    }
   }
 
   async handleLedgerNameInput(
@@ -472,24 +555,35 @@ export class BotHandlers {
     newName: string
   ): Promise<void> {
     const session = await cacheManager.getUserSession(userId);
-    if (!session?.selectedRenameLedger) return;
+    if (!session) return;
 
     try {
-      const ledger = await ledgerModule.renameLedger(
-        userId,
-        session.selectedRenameLedger,
-        newName
-      );
+      const ledger =
+        session.selectedLedgerAction === 'add'
+          ? await ledgerModule.createLedger(userId, newName)
+          : await ledgerModule.renameLedger(userId, session.selectedRenameLedger!, newName);
 
-      session.step = 'select_rename_ledger';
+      session.step = session.selectedLedgerAction === 'add' ? 'ledger_settings' : 'select_rename_ledger';
       session.selectedRenameLedger = undefined;
       await cacheManager.setUserSession(userId, session);
+      if (session.selectedLedgerAction === 'add') {
+        session.selectedLedgerAction = undefined;
+        await cacheManager.setUserSession(userId, session);
+        this.sendKeyboard(
+          chatId,
+          `已新增帳本「${ledger.name}」。\n\n請選擇帳本設定：`,
+          LEDGER_SETTINGS_MENU
+        );
+        return;
+      }
+
       const ledgers = await ledgerModule.getUserLedgers(userId);
-      const buttons = this.ledgerButtons(ledgers);
+      session.selectedLedgerAction = 'rename';
+      await cacheManager.setUserSession(userId, session);
       this.sendKeyboard(
         chatId,
         `帳本名稱已更新為「${ledger.name}」。\n\n請選擇要改名的帳本：`,
-        buttons
+        this.ledgerButtons(ledgers)
       );
     } catch (err) {
       const error = err instanceof Error ? err.message : '';
@@ -762,6 +856,7 @@ export class BotHandlers {
     session.step = 'select_type';
     session.selectedLedger = undefined;
     session.selectedRenameLedger = undefined;
+    session.selectedLedgerAction = undefined;
     session.selectedType = undefined;
     session.selectedCategory = undefined;
     session.selectedSubcategory = undefined;
@@ -826,10 +921,18 @@ export class BotHandlers {
         }
         return this.sendKeyboard(chatId, '請選擇操作：', SETTING_ACTION_MENU);
 
-      case 'select_rename_ledger':
+      case 'ledger_settings':
         return this.handleSettings(chatId, userId);
 
+      case 'select_rename_ledger':
+      case 'select_archive_ledger':
+        return this.handleLedgerSettings(chatId, userId);
+
       case 'input_ledger_name': {
+        if (session.selectedLedgerAction === 'add') {
+          return this.handleLedgerSettings(chatId, userId);
+        }
+
         session.step = 'select_rename_ledger';
         session.selectedRenameLedger = undefined;
         await cacheManager.setUserSession(userId, session);
@@ -941,8 +1044,20 @@ export class BotHandlers {
           return this.handleSettings(chatId, userId);
         }
 
+        if (text === '帳本設定') {
+          return this.handleLedgerSettings(chatId, userId);
+        }
+
+        if (text === '新增帳本') {
+          return this.handleCreateLedgerCommand(chatId, userId, username);
+        }
+
         if (text === '修改帳本名稱') {
           return this.handleRenameLedgerCommand(chatId, userId, username);
+        }
+
+        if (text === '封存帳本') {
+          return this.handleArchiveLedgerCommand(chatId, userId, username);
         }
 
         if (text === '備份目前設定') {
@@ -989,6 +1104,17 @@ export class BotHandlers {
         }
 
         switch (session.step) {
+          case 'ledger_settings':
+            if (text === '新增帳本') {
+              return this.handleCreateLedgerCommand(chatId, userId, username);
+            }
+            if (text === '修改帳本名稱') {
+              return this.handleRenameLedgerCommand(chatId, userId, username);
+            }
+            if (text === '封存帳本') {
+              return this.handleArchiveLedgerCommand(chatId, userId, username);
+            }
+            return this.handleLedgerSettings(chatId, userId);
           case 'settings':
             return this.handleSettingsTargetSelection(chatId, userId, text);
           case 'settings_select_category':
@@ -1003,6 +1129,8 @@ export class BotHandlers {
             return this.handleQueryLedgerSelection(chatId, userId, text);
           case 'select_rename_ledger':
             return this.handleRenameLedgerSelection(chatId, userId, text);
+          case 'select_archive_ledger':
+            return this.handleArchiveLedgerSelection(chatId, userId, text);
           case 'input_ledger_name':
             return this.handleLedgerNameInput(chatId, userId, text);
           case 'select_ledger':
