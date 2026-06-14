@@ -1,10 +1,12 @@
 export type TransactionType = 'expense' | 'income';
-export type PaymentMethod =
-  | 'cash'
-  | 'line_pay'
-  | 'alipay'
-  | 'cathay_credit_card'
-  | 'okx_credit_card';
+export type PaymentMethod = string;
+export type SettingTarget =
+  | 'payment'
+  | 'expense_category'
+  | 'income_category'
+  | 'expense_subcategory'
+  | 'income_subcategory';
+export type SettingAction = 'add' | 'rename' | 'delete';
 
 export interface User {
   userId: number;
@@ -43,10 +45,15 @@ export interface UserSession {
   selectedSubcategory?: string;
   selectedPayment?: PaymentMethod;
   selectedAmount?: number;
+  selectedSettingTarget?: SettingTarget;
+  selectedSettingAction?: SettingAction;
+  selectedSettingCategory?: string;
+  selectedSettingItem?: string;
 }
 
 export type SessionStep =
   | 'start'
+  | 'settings'
   | 'select_type'
   | 'select_ledger'
   | 'select_category'
@@ -58,4 +65,9 @@ export type SessionStep =
   | 'confirm'
   | 'select_query_ledger'
   | 'select_rename_ledger'
-  | 'input_ledger_name';
+  | 'input_ledger_name'
+  | 'settings_select_target'
+  | 'settings_select_category'
+  | 'settings_select_action'
+  | 'settings_select_item'
+  | 'settings_input_name';

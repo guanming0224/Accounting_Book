@@ -5,10 +5,21 @@ import { cacheManager } from '../db/cache';
 import { userModule } from '../modules/user/user';
 import { ledgerModule } from '../modules/ledger/ledger';
 import { transactionModule } from '../modules/transaction/transaction';
+import { settingsModule } from '../modules/settings/settings';
 import { googleSheetsIntegration } from '../integrations/GoogleSheets';
 
 const MAIN_MENU: string[][] = [['記帳', '查詢'], ['設定', '說明']];
-const SETTINGS_MENU: string[][] = [['修改帳本名稱'], ['取消']];
+const NAVIGATION_BUTTONS = ['上一步', '回主畫面'];
+const SETTINGS_MENU: string[][] = [
+  ['修改帳本名稱'],
+  ['付款方式設定'],
+  ['支出類別設定', '收入類別設定'],
+  ['支出子類別設定', '收入子類別設定'],
+  ['備份目前設定'],
+  ['恢復備份設定', '恢復初始設定'],
+  NAVIGATION_BUTTONS,
+];
+const SETTING_ACTION_MENU: string[][] = [['新增', '修改', '刪除'], NAVIGATION_BUTTONS];
 
 export class BotHandlers {
   private bot: TelegramBot;
@@ -32,8 +43,41 @@ export class BotHandlers {
       .catch((err) => console.error('Failed to send message:', err));
   }
 
-  private getCategoriesForSession(session: UserSession) {
-    return session.selectedType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  private getSettingType(session: UserSession): 'expense' | 'income' {
+    return session.selectedSettingTarget?.startsWith('income') ? 'income' : 'expense';
+  }
+
+  private isSubcategoryTarget(session: UserSession): boolean {
+    return (
+      session.selectedSettingTarget === 'expense_subcategory' ||
+      session.selectedSettingTarget === 'income_subcategory'
+    );
+  }
+
+  private withNavigation(buttons: string[][] = []): string[][] {
+    return [...buttons, NAVIGATION_BUTTONS];
+  }
+
+  private ledgerButtons(ledgers: { name: string }[]): string[][] {
+    const rows: string[][] = [];
+    for (let i = 0; i < ledgers.length; i += 2) {
+      rows.push(ledgers.slice(i, i + 2).map((ledger) => ledger.name));
+    }
+    return this.withNavigation(rows);
+  }
+
+  private itemButtons(items: string[]): string[][] {
+    const rows: string[][] = [];
+    for (let i = 0; i < items.length; i += 2) {
+      rows.push(items.slice(i, i + 2));
+    }
+    return this.withNavigation(rows);
+  }
+
+  private async showMainMenu(chatId: number, userId: number, message: string): Promise<void> {
+    const session: UserSession = { userId, step: 'select_type' };
+    await cacheManager.setUserSession(userId, session);
+    this.sendKeyboard(chatId, message, MAIN_MENU);
   }
 
   async handleStart(chatId: number, userId: number, username: string): Promise<void> {
@@ -42,6 +86,7 @@ export class BotHandlers {
 
     // Create default ledgers if not exist
     await ledgerModule.createDefaultLedgers(userId);
+    await settingsModule.initializeDefaults(userId);
 
     // Initialize user session
     const session: UserSession = { userId, step: 'select_type' };
@@ -53,6 +98,21 @@ export class BotHandlers {
     this.sendKeyboard(chatId, message, MAIN_MENU);
   }
 
+  async sendMainMenuToKnownUsers(): Promise<void> {
+    const users = await userModule.getAllUsers();
+    for (const user of users) {
+      const session: UserSession = { userId: user.userId, step: 'select_type' };
+      await cacheManager.setUserSession(user.userId, session);
+      await ledgerModule.createDefaultLedgers(user.userId);
+      await settingsModule.initializeDefaults(user.userId);
+      this.sendKeyboard(
+        user.userId,
+        '系統已啟動。\n\n請選擇您要進行的操作：',
+        MAIN_MENU
+      );
+    }
+  }
+
   async handleRecording(chatId: number, userId: number, username: string): Promise<void> {
     const session = await cacheManager.getUserSession(userId);
     if (!session) {
@@ -60,7 +120,7 @@ export class BotHandlers {
     }
 
     const message = '請選擇進出類型：';
-    this.sendKeyboard(chatId, message, [['支出', '進帳'], ['取消']]);
+    this.sendKeyboard(chatId, message, this.withNavigation([['支出', '進帳']]));
   }
 
   async handleHelp(chatId: number): Promise<void> {
@@ -78,12 +138,274 @@ export class BotHandlers {
       `支出類別：\n${expenseCategoryLines}\n\n` +
       `進帳類別：\n${incomeCategoryLines}\n\n` +
       `支付方式：${Object.values(PAYMENT_METHODS).join('、')}\n\n` +
-      '隨時可輸入「取消」回到主選單。';
+      '隨時可輸入「回主畫面」回到主選單。';
     this.sendKeyboard(chatId, message, MAIN_MENU);
   }
 
-  async handleSettings(chatId: number): Promise<void> {
+  async handleSettings(chatId: number, userId: number): Promise<void> {
+    const session: UserSession = { userId, step: 'settings' };
+    await cacheManager.setUserSession(userId, session);
     this.sendKeyboard(chatId, '請選擇設定項目：', SETTINGS_MENU);
+  }
+
+  async handleBackupSettings(chatId: number, userId: number): Promise<void> {
+    await settingsModule.backupSettings(userId);
+    this.sendKeyboard(chatId, '已備份目前設定。\n\n請選擇設定項目：', SETTINGS_MENU);
+  }
+
+  async handleRestoreBackupSettings(chatId: number, userId: number): Promise<void> {
+    try {
+      await settingsModule.restoreBackup(userId);
+      this.sendKeyboard(chatId, '已恢復備份設定。\n\n請選擇設定項目：', SETTINGS_MENU);
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message === 'SETTINGS_BACKUP_NOT_FOUND'
+          ? '目前沒有備份設定。請先使用「備份目前設定」。'
+          : '恢復備份設定失敗。';
+      this.sendKeyboard(chatId, `${message}\n\n請選擇設定項目：`, SETTINGS_MENU);
+    }
+  }
+
+  async handleRestoreDefaultSettings(chatId: number, userId: number): Promise<void> {
+    await settingsModule.resetToDefaults(userId);
+    this.sendKeyboard(
+      chatId,
+      '已恢復初始設定。\n\n恢復前的設定已自動備份，可用「恢復備份設定」還原。\n\n請選擇設定項目：',
+      SETTINGS_MENU
+    );
+  }
+
+  async handleSettingsTargetSelection(
+    chatId: number,
+    userId: number,
+    targetText: string
+  ): Promise<void> {
+    const targetMap: Record<string, UserSession['selectedSettingTarget']> = {
+      付款方式設定: 'payment',
+      支出類別設定: 'expense_category',
+      收入類別設定: 'income_category',
+      支出子類別設定: 'expense_subcategory',
+      收入子類別設定: 'income_subcategory',
+    };
+    const target = targetMap[targetText];
+    if (!target) {
+      return this.sendKeyboard(chatId, '請選擇設定項目：', SETTINGS_MENU);
+    }
+
+    const session: UserSession = {
+      userId,
+      step: target.endsWith('subcategory') ? 'settings_select_category' : 'settings_select_action',
+      selectedSettingTarget: target,
+    };
+    await cacheManager.setUserSession(userId, session);
+
+    if (session.step === 'settings_select_category') {
+      const categories = await settingsModule.getCategories(userId, this.getSettingType(session));
+      return this.sendKeyboard(
+        chatId,
+        '請選擇要管理子類別的類別：',
+        this.itemButtons(categories.map((category) => category.name))
+      );
+    }
+
+    this.sendKeyboard(chatId, '請選擇操作：', SETTING_ACTION_MENU);
+  }
+
+  async handleSettingsCategorySelection(
+    chatId: number,
+    userId: number,
+    categoryName: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedSettingTarget) return;
+
+    const categories = await settingsModule.getCategories(userId, this.getSettingType(session));
+    if (!categories.some((category) => category.name === categoryName)) {
+      return this.sendKeyboard(
+        chatId,
+        '找不到該類別，請重新選擇：',
+        this.itemButtons(categories.map((category) => category.name))
+      );
+    }
+
+    session.selectedSettingCategory = categoryName;
+    session.step = 'settings_select_action';
+    await cacheManager.setUserSession(userId, session);
+    this.sendKeyboard(chatId, '請選擇操作：', SETTING_ACTION_MENU);
+  }
+
+  async handleSettingsActionSelection(
+    chatId: number,
+    userId: number,
+    actionText: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedSettingTarget) return;
+
+    const actionMap: Record<string, UserSession['selectedSettingAction']> = {
+      新增: 'add',
+      修改: 'rename',
+      刪除: 'delete',
+    };
+    const action = actionMap[actionText];
+    if (!action) {
+      return this.sendKeyboard(chatId, '請選擇操作：', SETTING_ACTION_MENU);
+    }
+
+    session.selectedSettingAction = action;
+
+    if (action === 'add') {
+      session.step = 'settings_input_name';
+      await cacheManager.setUserSession(userId, session);
+      return this.sendKeyboard(chatId, '請輸入新名稱：', [NAVIGATION_BUTTONS]);
+    }
+
+    const items = await this.getSettingItems(userId, session);
+    if (!items.length) {
+      return this.sendKeyboard(chatId, '目前沒有可操作的項目。', SETTING_ACTION_MENU);
+    }
+
+    session.step = 'settings_select_item';
+    await cacheManager.setUserSession(userId, session);
+    this.sendKeyboard(chatId, '請選擇項目：', this.itemButtons(items));
+  }
+
+  async handleSettingsItemSelection(
+    chatId: number,
+    userId: number,
+    itemName: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedSettingTarget || !session.selectedSettingAction) return;
+
+    const items = await this.getSettingItems(userId, session);
+    if (!items.includes(itemName)) {
+      return this.sendKeyboard(chatId, '找不到該項目，請重新選擇：', this.itemButtons(items));
+    }
+
+    session.selectedSettingItem = itemName;
+
+    if (session.selectedSettingAction === 'delete') {
+      await this.applySettingDelete(userId, session);
+      session.step = 'settings_select_action';
+      session.selectedSettingAction = undefined;
+      session.selectedSettingItem = undefined;
+      await cacheManager.setUserSession(userId, session);
+      return this.sendKeyboard(chatId, `已刪除「${itemName}」。\n\n請選擇操作：`, SETTING_ACTION_MENU);
+    }
+
+    session.step = 'settings_input_name';
+    await cacheManager.setUserSession(userId, session);
+    this.sendKeyboard(chatId, `請輸入「${itemName}」的新名稱：`, [NAVIGATION_BUTTONS]);
+  }
+
+  async handleSettingsNameInput(chatId: number, userId: number, name: string): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedSettingTarget || !session.selectedSettingAction) return;
+
+    try {
+      if (session.selectedSettingAction === 'add') {
+        await this.applySettingAdd(userId, session, name);
+      } else {
+        await this.applySettingRename(userId, session, name);
+      }
+
+      session.step = 'settings_select_action';
+      session.selectedSettingAction = undefined;
+      session.selectedSettingItem = undefined;
+      await cacheManager.setUserSession(userId, session);
+      this.sendKeyboard(chatId, `已儲存「${name.trim()}」。\n\n請選擇操作：`, SETTING_ACTION_MENU);
+    } catch (err) {
+      const message = this.getSettingErrorMessage(err);
+      this.sendKeyboard(chatId, message, [NAVIGATION_BUTTONS]);
+    }
+  }
+
+  private async getSettingItems(userId: number, session: UserSession): Promise<string[]> {
+    switch (session.selectedSettingTarget) {
+      case 'payment':
+        return settingsModule.getPaymentMethods(userId);
+      case 'expense_category':
+        return (await settingsModule.getCategories(userId, 'expense')).map((category) => category.name);
+      case 'income_category':
+        return (await settingsModule.getCategories(userId, 'income')).map((category) => category.name);
+      case 'expense_subcategory':
+      case 'income_subcategory':
+        return settingsModule.getSubcategories(
+          userId,
+          this.getSettingType(session),
+          session.selectedSettingCategory || ''
+        );
+      default:
+        return [];
+    }
+  }
+
+  private async applySettingAdd(userId: number, session: UserSession, name: string): Promise<void> {
+    switch (session.selectedSettingTarget) {
+      case 'payment':
+        return settingsModule.addPaymentMethod(userId, name);
+      case 'expense_category':
+        return settingsModule.addCategory(userId, 'expense', name);
+      case 'income_category':
+        return settingsModule.addCategory(userId, 'income', name);
+      case 'expense_subcategory':
+      case 'income_subcategory':
+        return settingsModule.addSubcategory(
+          userId,
+          this.getSettingType(session),
+          session.selectedSettingCategory || '',
+          name
+        );
+    }
+  }
+
+  private async applySettingRename(userId: number, session: UserSession, name: string): Promise<void> {
+    switch (session.selectedSettingTarget) {
+      case 'payment':
+        return settingsModule.renamePaymentMethod(userId, session.selectedSettingItem || '', name);
+      case 'expense_category':
+        return settingsModule.renameCategory(userId, 'expense', session.selectedSettingItem || '', name);
+      case 'income_category':
+        return settingsModule.renameCategory(userId, 'income', session.selectedSettingItem || '', name);
+      case 'expense_subcategory':
+      case 'income_subcategory':
+        return settingsModule.renameSubcategory(
+          userId,
+          this.getSettingType(session),
+          session.selectedSettingCategory || '',
+          session.selectedSettingItem || '',
+          name
+        );
+    }
+  }
+
+  private async applySettingDelete(userId: number, session: UserSession): Promise<void> {
+    switch (session.selectedSettingTarget) {
+      case 'payment':
+        return settingsModule.deletePaymentMethod(userId, session.selectedSettingItem || '');
+      case 'expense_category':
+        return settingsModule.deleteCategory(userId, 'expense', session.selectedSettingItem || '');
+      case 'income_category':
+        return settingsModule.deleteCategory(userId, 'income', session.selectedSettingItem || '');
+      case 'expense_subcategory':
+      case 'income_subcategory':
+        return settingsModule.deleteSubcategory(
+          userId,
+          this.getSettingType(session),
+          session.selectedSettingCategory || '',
+          session.selectedSettingItem || ''
+        );
+    }
+  }
+
+  private getSettingErrorMessage(err: unknown): string {
+    const message = err instanceof Error ? err.message : '';
+    if (message === 'SETTING_NAME_EMPTY') return '名稱不可空白，請重新輸入：';
+    if (message === 'SETTING_NAME_TOO_LONG') return '名稱最多 40 個字，請重新輸入：';
+    if (message === 'SETTING_NOT_FOUND') return '找不到該項目，請重新選擇。';
+    if (message.includes('SQLITE_CONSTRAINT')) return '名稱已存在，請換一個名稱：';
+    return '設定儲存失敗，請重新輸入：';
   }
 
   async handleQuery(chatId: number, userId: number, username: string): Promise<void> {
@@ -98,8 +420,7 @@ export class BotHandlers {
     await cacheManager.setUserSession(userId, session);
 
     const ledgers = await ledgerModule.getUserLedgers(userId);
-    const buttons = ledgers.map((l) => [l.name]);
-    buttons.push(['取消']);
+    const buttons = this.ledgerButtons(ledgers);
 
     this.sendKeyboard(chatId, '請選擇要查詢的帳本：', buttons);
   }
@@ -116,8 +437,7 @@ export class BotHandlers {
     await cacheManager.setUserSession(userId, session);
 
     const ledgers = await ledgerModule.getUserLedgers(userId);
-    const buttons = ledgers.map((l) => [l.name]);
-    buttons.push(['取消']);
+    const buttons = this.ledgerButtons(ledgers);
 
     this.sendKeyboard(chatId, '請選擇要改名的帳本：', buttons);
   }
@@ -134,8 +454,7 @@ export class BotHandlers {
     const selectedLedger = ledgers.find((l) => l.name === ledgerName);
     if (!selectedLedger) {
       this.sendKeyboard(chatId, '找不到該帳本，請重新選擇：', [
-        ...ledgers.map((l) => [l.name]),
-        ['取消'],
+        ...this.ledgerButtons(ledgers),
       ]);
       return;
     }
@@ -144,7 +463,7 @@ export class BotHandlers {
     session.step = 'input_ledger_name';
     await cacheManager.setUserSession(userId, session);
 
-    this.sendKeyboard(chatId, `請輸入「${selectedLedger.name}」的新名稱：`, [['取消']]);
+    this.sendKeyboard(chatId, `請輸入「${selectedLedger.name}」的新名稱：`, [NAVIGATION_BUTTONS]);
   }
 
   async handleLedgerNameInput(
@@ -166,8 +485,7 @@ export class BotHandlers {
       session.selectedRenameLedger = undefined;
       await cacheManager.setUserSession(userId, session);
       const ledgers = await ledgerModule.getUserLedgers(userId);
-      const buttons = ledgers.map((l) => [l.name]);
-      buttons.push(['取消']);
+      const buttons = this.ledgerButtons(ledgers);
       this.sendKeyboard(
         chatId,
         `帳本名稱已更新為「${ledger.name}」。\n\n請選擇要改名的帳本：`,
@@ -191,7 +509,7 @@ export class BotHandlers {
         return;
       }
 
-      this.sendKeyboard(chatId, message, [['取消']]);
+      this.sendKeyboard(chatId, message, [NAVIGATION_BUTTONS]);
     }
   }
 
@@ -207,8 +525,7 @@ export class BotHandlers {
     const selectedLedger = ledgers.find((l) => l.name === ledgerName);
     if (!selectedLedger) {
       this.sendKeyboard(chatId, '找不到該帳本，請重新選擇：', [
-        ...ledgers.map((l) => [l.name]),
-        ['取消'],
+        ...this.ledgerButtons(ledgers),
       ]);
       return;
     }
@@ -259,8 +576,7 @@ export class BotHandlers {
     await cacheManager.setUserSession(userId, session);
 
     const ledgers = await ledgerModule.getUserLedgers(userId);
-    const buttons = ledgers.map((l) => [l.name]);
-    buttons.push(['取消']);
+    const buttons = this.ledgerButtons(ledgers);
 
     this.sendKeyboard(chatId, '請選擇帳本：', buttons);
   }
@@ -277,8 +593,7 @@ export class BotHandlers {
     const selectedLedger = ledgers.find((l) => l.name === ledgerName);
     if (!selectedLedger) {
       this.sendKeyboard(chatId, '找不到該帳本，請重新選擇：', [
-        ...ledgers.map((l) => [l.name]),
-        ['取消'],
+        ...this.ledgerButtons(ledgers),
       ]);
       return;
     }
@@ -287,9 +602,8 @@ export class BotHandlers {
     session.step = 'select_category';
     await cacheManager.setUserSession(userId, session);
 
-    const categories = Object.keys(this.getCategoriesForSession(session));
-    const buttons = categories.map((c) => [c]);
-    buttons.push(['取消']);
+    const categories = await settingsModule.getCategories(userId, session.selectedType!);
+    const buttons = this.itemButtons(categories.map((category) => category.name));
 
     this.sendKeyboard(chatId, '請選擇類別：', buttons);
   }
@@ -302,11 +616,10 @@ export class BotHandlers {
     const session = await cacheManager.getUserSession(userId);
     if (!session) return;
 
-    const categories = this.getCategoriesForSession(session);
-    const categoryData = categories[category as keyof typeof categories];
+    const categories = await settingsModule.getCategories(userId, session.selectedType!);
+    const categoryData = categories.find((item) => item.name === category);
     if (!categoryData) {
-      const buttons = Object.keys(categories).map((c) => [c]);
-      buttons.push(['取消']);
+      const buttons = this.itemButtons(categories.map((item) => item.name));
       this.sendKeyboard(chatId, '無效的類別，請重新選擇：', buttons);
       return;
     }
@@ -315,8 +628,7 @@ export class BotHandlers {
     session.step = 'select_subcategory';
     await cacheManager.setUserSession(userId, session);
 
-    const buttons = categoryData.subcategories.map((s) => [s]);
-    buttons.push(['取消']);
+    const buttons = this.itemButtons(categoryData.subcategories);
 
     this.sendKeyboard(chatId, '請選擇子類別：', buttons);
   }
@@ -330,13 +642,11 @@ export class BotHandlers {
     if (!session) return;
 
     // Validate the subcategory belongs to the chosen category.
-    const categories = this.getCategoriesForSession(session);
-    const categoryData = session.selectedCategory
-      ? categories[session.selectedCategory as keyof typeof categories]
-      : undefined;
-    if (!categoryData || !categoryData.subcategories.includes(subcategory)) {
-      const buttons = (categoryData?.subcategories ?? []).map((s) => [s]);
-      buttons.push(['取消']);
+    const subcategories = session.selectedCategory
+      ? await settingsModule.getSubcategories(userId, session.selectedType!, session.selectedCategory)
+      : [];
+    if (!subcategories.includes(subcategory)) {
+      const buttons = this.itemButtons(subcategories);
       this.sendKeyboard(chatId, '無效的子類別，請重新選擇：', buttons);
       return;
     }
@@ -345,8 +655,8 @@ export class BotHandlers {
     session.step = 'select_payment';
     await cacheManager.setUserSession(userId, session);
 
-    const buttons = Object.values(PAYMENT_METHODS).map((name) => [name]);
-    buttons.push(['取消']);
+    const paymentMethods = await settingsModule.getPaymentMethods(userId);
+    const buttons = this.itemButtons(paymentMethods);
 
     this.sendKeyboard(chatId, '請選擇支付方式：', buttons);
   }
@@ -359,21 +669,18 @@ export class BotHandlers {
     const session = await cacheManager.getUserSession(userId);
     if (!session) return;
 
-    const methodKey = Object.entries(PAYMENT_METHODS).find(
-      ([_, name]) => name === paymentMethod
-    )?.[0];
-    if (!methodKey) {
-      const buttons = Object.values(PAYMENT_METHODS).map((name) => [name]);
-      buttons.push(['取消']);
+    const paymentMethods = await settingsModule.getPaymentMethods(userId);
+    if (!paymentMethods.includes(paymentMethod)) {
+      const buttons = this.itemButtons(paymentMethods);
       this.sendKeyboard(chatId, '無效的支付方式，請重新選擇：', buttons);
       return;
     }
 
-    session.selectedPayment = methodKey as any;
+    session.selectedPayment = paymentMethod;
     session.step = 'input_amount';
     await cacheManager.setUserSession(userId, session);
 
-    this.sendKeyboard(chatId, '請輸入金額：', [['取消']]);
+    this.sendKeyboard(chatId, '請輸入金額：', [NAVIGATION_BUTTONS]);
   }
 
   async handleAmountInput(
@@ -386,7 +693,7 @@ export class BotHandlers {
 
     const amount = parseFloat(amountText);
     if (isNaN(amount) || amount <= 0) {
-      this.sendKeyboard(chatId, '無效的金額，請重新輸入：', [['取消']]);
+      this.sendKeyboard(chatId, '無效的金額，請重新輸入：', [NAVIGATION_BUTTONS]);
       return;
     }
 
@@ -394,7 +701,7 @@ export class BotHandlers {
     session.step = 'ask_note';
     await cacheManager.setUserSession(userId, session);
 
-    this.sendKeyboard(chatId, '是否要寫備註？', [['寫備註', '不用備註'], ['取消']]);
+    this.sendKeyboard(chatId, '是否要寫備註？', this.withNavigation([['寫備註', '不用備註']]));
   }
 
   async handleNoteDecision(
@@ -412,11 +719,11 @@ export class BotHandlers {
     if (decision === '寫備註') {
       session.step = 'input_note';
       await cacheManager.setUserSession(userId, session);
-      this.sendKeyboard(chatId, '請輸入備註：', [['取消']]);
+      this.sendKeyboard(chatId, '請輸入備註：', [NAVIGATION_BUTTONS]);
       return;
     }
 
-    this.sendKeyboard(chatId, '請選擇是否要寫備註：', [['寫備註', '不用備註'], ['取消']]);
+    this.sendKeyboard(chatId, '請選擇是否要寫備註：', this.withNavigation([['寫備註', '不用備註']]));
   }
 
   async handleNoteInput(
@@ -451,7 +758,7 @@ export class BotHandlers {
       console.error('Failed to append to Google Sheets:', err);
     });
 
-    const paymentName = PAYMENT_METHODS[session.selectedPayment as keyof typeof PAYMENT_METHODS];
+    const paymentName = session.selectedPayment;
     const ledger = await ledgerModule.getLedgerById(session.selectedLedger!, userId);
     const ledgerName = ledger?.name || '未知帳本';
     const message = `✓ 記帳成功！\n\n類型：${
@@ -478,6 +785,10 @@ export class BotHandlers {
     session.selectedSubcategory = undefined;
     session.selectedPayment = undefined;
     session.selectedAmount = undefined;
+    session.selectedSettingTarget = undefined;
+    session.selectedSettingAction = undefined;
+    session.selectedSettingCategory = undefined;
+    session.selectedSettingItem = undefined;
   }
 
   async handleCancel(chatId: number, userId: number): Promise<void> {
@@ -487,7 +798,143 @@ export class BotHandlers {
       await cacheManager.setUserSession(userId, session);
     }
 
-    this.sendKeyboard(chatId, '已取消操作，請選擇：', MAIN_MENU);
+    this.sendKeyboard(chatId, '已回到主畫面，請選擇：', MAIN_MENU);
+  }
+
+  async handleBack(chatId: number, userId: number): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session) {
+      return this.showMainMenu(chatId, userId, '請選擇您要進行的操作：');
+    }
+
+    switch (session.step) {
+      case 'settings':
+      case 'select_query_ledger':
+      case 'select_type':
+        return this.showMainMenu(chatId, userId, '請選擇您要進行的操作：');
+
+      case 'settings_select_target':
+        return this.handleSettings(chatId, userId);
+
+      case 'settings_select_category':
+      case 'settings_select_action':
+        session.step = 'settings';
+        session.selectedSettingTarget = undefined;
+        session.selectedSettingAction = undefined;
+        session.selectedSettingCategory = undefined;
+        session.selectedSettingItem = undefined;
+        await cacheManager.setUserSession(userId, session);
+        return this.sendKeyboard(chatId, '請選擇設定項目：', SETTINGS_MENU);
+
+      case 'settings_select_item':
+      case 'settings_input_name':
+        session.step = this.isSubcategoryTarget(session)
+          ? 'settings_select_category'
+          : 'settings_select_action';
+        session.selectedSettingAction = undefined;
+        session.selectedSettingItem = undefined;
+        await cacheManager.setUserSession(userId, session);
+        if (session.step === 'settings_select_category') {
+          const categories = await settingsModule.getCategories(userId, this.getSettingType(session));
+          return this.sendKeyboard(
+            chatId,
+            '請選擇要管理子類別的類別：',
+            this.itemButtons(categories.map((category) => category.name))
+          );
+        }
+        return this.sendKeyboard(chatId, '請選擇操作：', SETTING_ACTION_MENU);
+
+      case 'select_rename_ledger':
+        return this.handleSettings(chatId, userId);
+
+      case 'input_ledger_name': {
+        session.step = 'select_rename_ledger';
+        session.selectedRenameLedger = undefined;
+        await cacheManager.setUserSession(userId, session);
+        const ledgers = await ledgerModule.getUserLedgers(userId);
+        return this.sendKeyboard(
+          chatId,
+          '請選擇要改名的帳本：',
+          this.ledgerButtons(ledgers)
+        );
+      }
+
+      case 'select_ledger':
+        session.step = 'select_type';
+        session.selectedType = undefined;
+        await cacheManager.setUserSession(userId, session);
+        return this.sendKeyboard(
+          chatId,
+          '請選擇進出類型：',
+          this.withNavigation([['支出', '進帳']])
+        );
+
+      case 'select_category': {
+        session.step = 'select_ledger';
+        session.selectedLedger = undefined;
+        await cacheManager.setUserSession(userId, session);
+        const ledgers = await ledgerModule.getUserLedgers(userId);
+        return this.sendKeyboard(
+          chatId,
+          '請選擇帳本：',
+          this.ledgerButtons(ledgers)
+        );
+      }
+
+      case 'select_subcategory': {
+        session.step = 'select_category';
+        session.selectedCategory = undefined;
+        await cacheManager.setUserSession(userId, session);
+        const categories = await settingsModule.getCategories(userId, session.selectedType!);
+        return this.sendKeyboard(
+          chatId,
+          '請選擇類別：',
+          this.itemButtons(categories.map((category) => category.name))
+        );
+      }
+
+      case 'select_payment': {
+        session.step = 'select_subcategory';
+        session.selectedSubcategory = undefined;
+        await cacheManager.setUserSession(userId, session);
+        const subcategories = session.selectedCategory
+          ? await settingsModule.getSubcategories(userId, session.selectedType!, session.selectedCategory)
+          : [];
+        return this.sendKeyboard(
+          chatId,
+          '請選擇子類別：',
+          this.itemButtons(subcategories)
+        );
+      }
+
+      case 'input_amount':
+        session.step = 'select_payment';
+        session.selectedPayment = undefined;
+        await cacheManager.setUserSession(userId, session);
+        return this.sendKeyboard(
+          chatId,
+          '請選擇支付方式：',
+          this.itemButtons(await settingsModule.getPaymentMethods(userId))
+        );
+
+      case 'ask_note':
+        session.step = 'input_amount';
+        session.selectedAmount = undefined;
+        await cacheManager.setUserSession(userId, session);
+        return this.sendKeyboard(chatId, '請輸入金額：', [NAVIGATION_BUTTONS]);
+
+      case 'input_note':
+        session.step = 'ask_note';
+        await cacheManager.setUserSession(userId, session);
+        return this.sendKeyboard(
+          chatId,
+          '是否要寫備註？',
+          this.withNavigation([['寫備註', '不用備註']])
+        );
+
+      default:
+        return this.showMainMenu(chatId, userId, '請選擇您要進行的操作：');
+    }
   }
 
   registerHandlers(): void {
@@ -518,11 +965,33 @@ export class BotHandlers {
         }
 
         if (text === '設定') {
-          return this.handleSettings(chatId);
+          return this.handleSettings(chatId, userId);
         }
 
         if (text === '修改帳本名稱') {
           return this.handleRenameLedgerCommand(chatId, userId, username);
+        }
+
+        if (text === '備份目前設定') {
+          return this.handleBackupSettings(chatId, userId);
+        }
+
+        if (text === '恢復備份設定') {
+          return this.handleRestoreBackupSettings(chatId, userId);
+        }
+
+        if (text === '恢復初始設定') {
+          return this.handleRestoreDefaultSettings(chatId, userId);
+        }
+
+        if (
+          text === '付款方式設定' ||
+          text === '支出類別設定' ||
+          text === '收入類別設定' ||
+          text === '支出子類別設定' ||
+          text === '收入子類別設定'
+        ) {
+          return this.handleSettingsTargetSelection(chatId, userId, text);
         }
 
         if (text === '說明') {
@@ -533,7 +1002,7 @@ export class BotHandlers {
           return this.handleTypeSelection(chatId, userId, text);
         }
 
-        if (text === '取消' || text === '退出') {
+        if (text === '回主畫面' || text === '取消' || text === '退出') {
           return this.handleCancel(chatId, userId);
         }
 
@@ -542,7 +1011,21 @@ export class BotHandlers {
           return this.handleStart(chatId, userId, username);
         }
 
+        if (text === '上一步') {
+          return this.handleBack(chatId, userId);
+        }
+
         switch (session.step) {
+          case 'settings':
+            return this.handleSettingsTargetSelection(chatId, userId, text);
+          case 'settings_select_category':
+            return this.handleSettingsCategorySelection(chatId, userId, text);
+          case 'settings_select_action':
+            return this.handleSettingsActionSelection(chatId, userId, text);
+          case 'settings_select_item':
+            return this.handleSettingsItemSelection(chatId, userId, text);
+          case 'settings_input_name':
+            return this.handleSettingsNameInput(chatId, userId, text);
           case 'select_query_ledger':
             return this.handleQueryLedgerSelection(chatId, userId, text);
           case 'select_rename_ledger':

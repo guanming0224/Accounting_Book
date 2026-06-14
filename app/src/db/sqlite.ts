@@ -54,9 +54,64 @@ export class Database {
           )
         `);
 
+        // User-configurable payment methods
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS payment_methods (
+            paymentMethodId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(userId, name),
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+
+        // User-configurable income/expense categories
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS user_categories (
+            categoryId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('expense', 'income')),
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(userId, type, name),
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+
+        // User-configurable category children
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS user_subcategories (
+            subcategoryId INTEGER PRIMARY KEY AUTOINCREMENT,
+            categoryId INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(categoryId, name),
+            FOREIGN KEY (categoryId) REFERENCES user_categories(categoryId) ON DELETE CASCADE
+          )
+        `);
+
+        // Latest user settings backup as a JSON snapshot
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS settings_backups (
+            userId INTEGER PRIMARY KEY,
+            snapshot TEXT NOT NULL,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+
         // Create index for faster queries
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_ledger ON transactions(ledgerId)`);
-        this.db.run(`CREATE INDEX IF NOT EXISTS idx_ledgers_user ON ledgers(userId)`, (err) => {
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_ledgers_user ON ledgers(userId)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_payment_methods_user ON payment_methods(userId)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_categories_user_type ON user_categories(userId, type)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_subcategories_category ON user_subcategories(categoryId)`, (err) => {
           if (err) reject(err);
           else resolve();
         });

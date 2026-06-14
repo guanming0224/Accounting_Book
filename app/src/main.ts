@@ -32,6 +32,7 @@ async function main() {
     console.log('🤖 Starting Telegram Bot...');
     const botHandlers = new BotHandlers(config.telegram.token);
     await botHandlers.start();
+    await botHandlers.sendMainMenuToKnownUsers();
 
     console.log('✅ Accounting Bot is running!');
 

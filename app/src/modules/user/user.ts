@@ -38,6 +38,10 @@ export class UserModule {
     );
     return user || null;
   }
+
+  async getAllUsers(): Promise<User[]> {
+    return db.all<User>('SELECT * FROM users ORDER BY createdAt');
+  }
 }
 
 export const userModule = new UserModule();
