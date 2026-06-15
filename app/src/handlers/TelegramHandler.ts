@@ -35,17 +35,61 @@ export class BotHandlers {
   }
 
   private sendKeyboard(chatId: number, text: string, buttons: string[][]): void {
-    this.bot
-      .sendMessage({
+    this.sendKeyboardWithRetry(chatId, text, buttons).catch((err) =>
+      console.error('Failed to send message after retries:', err)
+    );
+  }
+
+  private async sendKeyboardWithRetry(
+    chatId: number,
+    text: string,
+    buttons: string[][],
+    maxAttempts = 3
+  ): Promise<void> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.bot.sendMessage({
+          chat_id: chatId,
+          text,
+          reply_markup: {
+            keyboard: buttons,
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        });
+        return;
+      } catch (err) {
+        lastError = err;
+        console.error(`Failed to send message, attempt ${attempt}/${maxAttempts}:`, err);
+
+        if (attempt === 1) {
+          await this.sendRetryNotice(chatId);
+        }
+
+        if (attempt < maxAttempts) {
+          await this.delay(1500 * attempt);
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  private async sendRetryNotice(chatId: number): Promise<void> {
+    try {
+      await this.bot.sendMessage({
         chat_id: chatId,
-        text,
-        reply_markup: {
-          keyboard: buttons,
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        },
-      })
-      .catch((err) => console.error('Failed to send message:', err));
+        text: '目前 Telegram 連線較慢，系統正在重新傳送訊息，請稍候。',
+      });
+    } catch (err) {
+      console.error('Failed to send retry notice:', err);
+    }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private getSettingType(session: UserSession): 'expense' | 'income' {
