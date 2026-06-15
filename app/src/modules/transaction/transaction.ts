@@ -36,6 +36,21 @@ export class TransactionModule {
     );
   }
 
+  async getTransactionsByLedgerAndDateRange(
+    ledgerId: number,
+    startDate: string,
+    endDate: string,
+    limit: number = 10
+  ): Promise<Transaction[]> {
+    return db.all<Transaction>(
+      `SELECT * FROM transactions
+       WHERE ledgerId = ? AND createdAt >= ? AND createdAt < ?
+       ORDER BY createdAt DESC
+       LIMIT ?`,
+      [ledgerId, startDate, endDate, limit]
+    );
+  }
+
   async getLedgerStats(ledgerId: number): Promise<any> {
     const stats = await db.get<any>(
       `SELECT 
@@ -47,6 +62,38 @@ export class TransactionModule {
       [ledgerId]
     );
     return stats || { totalIncome: 0, totalExpense: 0, transactionCount: 0 };
+  }
+
+  async getLedgerStatsByDateRange(
+    ledgerId: number,
+    startDate: string,
+    endDate: string
+  ): Promise<any> {
+    const stats = await db.get<any>(
+      `SELECT 
+        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as totalIncome,
+        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as totalExpense,
+        COUNT(*) as transactionCount
+      FROM transactions
+      WHERE ledgerId = ? AND createdAt >= ? AND createdAt < ?`,
+      [ledgerId, startDate, endDate]
+    );
+    return stats || { totalIncome: 0, totalExpense: 0, transactionCount: 0 };
+  }
+
+  async getCategorySummaryByDateRange(
+    ledgerId: number,
+    startDate: string,
+    endDate: string
+  ): Promise<Array<{ type: TransactionType; category: string; total: number }>> {
+    return db.all(
+      `SELECT type, category, SUM(amount) as total
+       FROM transactions
+       WHERE ledgerId = ? AND createdAt >= ? AND createdAt < ?
+       GROUP BY type, category
+       ORDER BY type, total DESC`,
+      [ledgerId, startDate, endDate]
+    );
   }
 }
 

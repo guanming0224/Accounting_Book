@@ -41,6 +41,7 @@ export interface UserSession {
   userId: number;
   step: SessionStep;
   selectedLedger?: number;
+  selectedQueryLedger?: number;
   selectedRenameLedger?: number;
   selectedLedgerAction?: LedgerAction;
   selectedType?: TransactionType;
@@ -66,6 +67,7 @@ export type SessionStep =
   | 'input_note'
   | 'confirm'
   | 'select_query_ledger'
+  | 'select_query_range'
   | 'ledger_settings'
   | 'select_rename_ledger'
   | 'select_archive_ledger'

@@ -25,6 +25,7 @@ const LEDGER_SETTINGS_MENU: string[][] = [
   NAVIGATION_BUTTONS,
 ];
 const SETTING_ACTION_MENU: string[][] = [['新增', '修改', '刪除'], NAVIGATION_BUTTONS];
+const QUERY_RANGE_MENU: string[][] = [['本月', '上月'], ['本週', '上週'], NAVIGATION_BUTTONS];
 
 export class BotHandlers {
   private bot: TelegramBot;
@@ -121,6 +122,74 @@ export class BotHandlers {
       rows.push(items.slice(i, i + 2));
     }
     return this.withNavigation(rows);
+  }
+
+  private formatSqliteDate(date: Date): string {
+    return date.toISOString().slice(0, 19).replace('T', ' ');
+  }
+
+  private getTaipeiDateParts(date = new Date()): { year: number; month: number; day: number } {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Taipei',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+    return { year: get('year'), month: get('month'), day: get('day') };
+  }
+
+  private taipeiMidnightUtc(year: number, month: number, day: number): Date {
+    return new Date(Date.UTC(year, month - 1, day) - 8 * 60 * 60 * 1000);
+  }
+
+  private getQueryDateRange(range: string): {
+    label: string;
+    displayStart: string;
+    displayEnd: string;
+    startDate: string;
+    endDate: string;
+  } | null {
+    const { year, month, day } = this.getTaipeiDateParts();
+    const todayUtc = this.taipeiMidnightUtc(year, month, day);
+    const dayOfWeek = (todayUtc.getUTCDay() + 6) % 7;
+    const weekStart = new Date(todayUtc.getTime() - dayOfWeek * 24 * 60 * 60 * 1000);
+
+    let start: Date;
+    let end: Date;
+
+    if (range === '本月') {
+      start = this.taipeiMidnightUtc(year, month, 1);
+      end = month === 12 ? this.taipeiMidnightUtc(year + 1, 1, 1) : this.taipeiMidnightUtc(year, month + 1, 1);
+    } else if (range === '上月') {
+      start = month === 1 ? this.taipeiMidnightUtc(year - 1, 12, 1) : this.taipeiMidnightUtc(year, month - 1, 1);
+      end = this.taipeiMidnightUtc(year, month, 1);
+    } else if (range === '本週') {
+      start = weekStart;
+      end = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+    } else if (range === '上週') {
+      start = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+      end = weekStart;
+    } else {
+      return null;
+    }
+
+    return {
+      label: range,
+      displayStart: this.formatTaipeiDate(start),
+      displayEnd: this.formatTaipeiDate(new Date(end.getTime() - 24 * 60 * 60 * 1000)),
+      startDate: this.formatSqliteDate(start),
+      endDate: this.formatSqliteDate(end),
+    };
+  }
+
+  private formatTaipeiDate(date: Date): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Taipei',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
   }
 
   private async showMainMenu(chatId: number, userId: number, message: string): Promise<void> {
@@ -668,19 +737,77 @@ export class BotHandlers {
       return;
     }
 
-    const stats = await transactionModule.getLedgerStats(selectedLedger.ledgerId);
-    const recent = await transactionModule.getTransactionsByLedger(selectedLedger.ledgerId, 5);
+    session.selectedQueryLedger = selectedLedger.ledgerId;
+    session.step = 'select_query_range';
+    await cacheManager.setUserSession(userId, session);
+
+    this.sendKeyboard(chatId, '請選擇查詢範圍：', QUERY_RANGE_MENU);
+  }
+
+  async handleQueryRangeSelection(
+    chatId: number,
+    userId: number,
+    rangeText: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedQueryLedger) return;
+
+    const range = this.getQueryDateRange(rangeText);
+    if (!range) {
+      this.sendKeyboard(chatId, '請選擇查詢範圍：', QUERY_RANGE_MENU);
+      return;
+    }
+
+    const selectedLedger = await ledgerModule.getLedgerById(session.selectedQueryLedger, userId);
+    if (!selectedLedger) {
+      this.resetSession(session);
+      await cacheManager.setUserSession(userId, session);
+      this.sendKeyboard(chatId, '找不到該帳本，已回到主畫面。', MAIN_MENU);
+      return;
+    }
+
+    const stats = await transactionModule.getLedgerStatsByDateRange(
+      selectedLedger.ledgerId,
+      range.startDate,
+      range.endDate
+    );
+    const recent = await transactionModule.getTransactionsByLedgerAndDateRange(
+      selectedLedger.ledgerId,
+      range.startDate,
+      range.endDate,
+      5
+    );
+    const categorySummary = await transactionModule.getCategorySummaryByDateRange(
+      selectedLedger.ledgerId,
+      range.startDate,
+      range.endDate
+    );
 
     const income = stats.totalIncome || 0;
     const expense = stats.totalExpense || 0;
     const balance = income - expense;
 
     let message =
-      `📊 ${selectedLedger.name} 統計\n\n` +
+      `📊 ${selectedLedger.name}｜${range.label}統計\n\n` +
+      `期間：${range.displayStart} ~ ${range.displayEnd}\n\n` +
       `總進帳：${income}\n` +
       `總支出：${expense}\n` +
       `結餘：${balance}\n` +
       `筆數：${stats.transactionCount || 0}`;
+
+    if (categorySummary.length > 0) {
+      const incomeLines = categorySummary
+        .filter((item) => item.type === 'income')
+        .map((item) => `${item.category}：${item.total}`)
+        .join('\n');
+      const expenseLines = categorySummary
+        .filter((item) => item.type === 'expense')
+        .map((item) => `${item.category}：${item.total}`)
+        .join('\n');
+
+      if (incomeLines) message += `\n\n進帳分類：\n${incomeLines}`;
+      if (expenseLines) message += `\n\n支出分類：\n${expenseLines}`;
+    }
 
     if (recent.length > 0) {
       const lines = recent
@@ -696,6 +823,7 @@ export class BotHandlers {
 
     // Reset to main menu state.
     session.step = 'select_type';
+    session.selectedQueryLedger = undefined;
     await cacheManager.setUserSession(userId, session);
 
     this.sendKeyboard(chatId, message, MAIN_MENU);
@@ -899,6 +1027,7 @@ export class BotHandlers {
   private resetSession(session: UserSession): void {
     session.step = 'select_type';
     session.selectedLedger = undefined;
+    session.selectedQueryLedger = undefined;
     session.selectedRenameLedger = undefined;
     session.selectedLedgerAction = undefined;
     session.selectedType = undefined;
@@ -933,6 +1062,18 @@ export class BotHandlers {
       case 'select_query_ledger':
       case 'select_type':
         return this.showMainMenu(chatId, userId, '請選擇您要進行的操作：');
+
+      case 'select_query_range': {
+        session.step = 'select_query_ledger';
+        session.selectedQueryLedger = undefined;
+        await cacheManager.setUserSession(userId, session);
+        const ledgers = await ledgerModule.getUserLedgers(userId);
+        return this.sendKeyboard(
+          chatId,
+          '請選擇要查詢的帳本：',
+          this.ledgerButtons(ledgers)
+        );
+      }
 
       case 'settings_select_target':
         return this.handleSettings(chatId, userId);
@@ -1171,6 +1312,8 @@ export class BotHandlers {
             return this.handleSettingsNameInput(chatId, userId, text);
           case 'select_query_ledger':
             return this.handleQueryLedgerSelection(chatId, userId, text);
+          case 'select_query_range':
+            return this.handleQueryRangeSelection(chatId, userId, text);
           case 'select_rename_ledger':
             return this.handleRenameLedgerSelection(chatId, userId, text);
           case 'select_archive_ledger':
