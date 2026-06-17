@@ -1,0 +1,40 @@
+{
+  "name": "accounting_book",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "dev": "ts-node -P json/tsconfig.json app/src/main.ts",
+    "build": "tsc -p json/tsconfig.json",
+    "start": "node dist/main.js",
+    "init:sheets": "ts-node -P json/tsconfig.json app/src/scripts/initGoogleSheet.ts",
+    "clean": "rm -rf dist node_modules",
+    "lint": "eslint app/src/**/*.ts",
+    "format": "prettier --write app/src/**/*.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.17.0",
+    "dotenv": "^17.4.2",
+    "google-auth-library": "^10.7.0",
+    "googleapis": "^173.0.0",
+    "redis": "^6.0.0",
+    "sqlite3": "^6.0.1",
+    "telegram-bot-api": "^2.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "@types/redis": "^4.0.11",
+    "eslint": "^10.4.1",
+    "prettier": "^3.8.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
