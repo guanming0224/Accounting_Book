@@ -7,7 +7,8 @@ export type SettingTarget =
   | 'expense_subcategory'
   | 'income_subcategory';
 export type SettingAction = 'add' | 'rename' | 'delete';
-export type LedgerAction = 'add' | 'rename' | 'archive';
+export type LedgerAction = 'add' | 'rename' | 'archive' | 'unarchive';
+export type TransactionAction = 'edit_amount' | 'edit_note' | 'delete';
 
 export interface User {
   userId: number;
@@ -49,6 +50,8 @@ export interface UserSession {
   selectedSubcategory?: string;
   selectedPayment?: PaymentMethod;
   selectedAmount?: number;
+  selectedTransaction?: number;
+  selectedTransactionAction?: TransactionAction;
   selectedSettingTarget?: SettingTarget;
   selectedSettingAction?: SettingAction;
   selectedSettingCategory?: string;
@@ -68,9 +71,17 @@ export type SessionStep =
   | 'confirm'
   | 'select_query_ledger'
   | 'select_query_range'
+  | 'input_query_month'
+  | 'input_query_date_range'
+  | 'select_manage_transaction_ledger'
+  | 'select_manage_transaction'
+  | 'select_transaction_action'
+  | 'input_transaction_amount'
+  | 'input_transaction_note'
   | 'ledger_settings'
   | 'select_rename_ledger'
   | 'select_archive_ledger'
+  | 'select_unarchive_ledger'
   | 'input_ledger_name'
   | 'settings_select_target'
   | 'settings_select_category'

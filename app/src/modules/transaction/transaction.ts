@@ -36,6 +36,17 @@ export class TransactionModule {
     );
   }
 
+  async getTransactionByIdForLedger(
+    transactionId: number,
+    ledgerId: number
+  ): Promise<Transaction | null> {
+    const transaction = await db.get<Transaction>(
+      `SELECT * FROM transactions WHERE transactionId = ? AND ledgerId = ?`,
+      [transactionId, ledgerId]
+    );
+    return transaction || null;
+  }
+
   async getTransactionsByLedgerAndDateRange(
     ledgerId: number,
     startDate: string,
@@ -94,6 +105,50 @@ export class TransactionModule {
        ORDER BY type, total DESC`,
       [ledgerId, startDate, endDate]
     );
+  }
+
+  async updateTransactionAmount(
+    transactionId: number,
+    ledgerId: number,
+    amount: number
+  ): Promise<Transaction> {
+    const result = await db.run(
+      'UPDATE transactions SET amount = ? WHERE transactionId = ? AND ledgerId = ?',
+      [amount, transactionId, ledgerId]
+    );
+    if (!result.changes) {
+      throw new Error('TRANSACTION_NOT_FOUND');
+    }
+
+    const transaction = await this.getTransactionByIdForLedger(transactionId, ledgerId);
+    return transaction as Transaction;
+  }
+
+  async updateTransactionDescription(
+    transactionId: number,
+    ledgerId: number,
+    description: string
+  ): Promise<Transaction> {
+    const result = await db.run(
+      'UPDATE transactions SET description = ? WHERE transactionId = ? AND ledgerId = ?',
+      [description, transactionId, ledgerId]
+    );
+    if (!result.changes) {
+      throw new Error('TRANSACTION_NOT_FOUND');
+    }
+
+    const transaction = await this.getTransactionByIdForLedger(transactionId, ledgerId);
+    return transaction as Transaction;
+  }
+
+  async deleteTransaction(transactionId: number, ledgerId: number): Promise<void> {
+    const result = await db.run(
+      'DELETE FROM transactions WHERE transactionId = ? AND ledgerId = ?',
+      [transactionId, ledgerId]
+    );
+    if (!result.changes) {
+      throw new Error('TRANSACTION_NOT_FOUND');
+    }
   }
 }
 

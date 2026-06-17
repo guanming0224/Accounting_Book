@@ -1,6 +1,6 @@
 import TelegramBot from 'telegram-bot-api';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, PAYMENT_METHODS } from '../constants';
-import { UserSession } from '../types';
+import { Transaction, UserSession } from '../types';
 import { cacheManager } from '../db/cache';
 import { userModule } from '../modules/user/user';
 import { ledgerModule } from '../modules/ledger/ledger';
@@ -8,7 +8,7 @@ import { transactionModule } from '../modules/transaction/transaction';
 import { settingsModule } from '../modules/settings/settings';
 import { googleSheetsIntegration } from '../integrations/GoogleSheets';
 
-const MAIN_MENU: string[][] = [['記帳', '查詢'], ['設定', '說明']];
+const MAIN_MENU: string[][] = [['記帳', '查詢'], ['交易管理', '設定'], ['說明']];
 const NAVIGATION_BUTTONS = ['上一步', '回主畫面'];
 const SETTINGS_MENU: string[][] = [
   ['帳本設定'],
@@ -22,10 +22,17 @@ const SETTINGS_MENU: string[][] = [
 const LEDGER_SETTINGS_MENU: string[][] = [
   ['新增帳本'],
   ['修改帳本名稱', '封存帳本'],
+  ['查看封存帳本', '取消封存帳本'],
   NAVIGATION_BUTTONS,
 ];
 const SETTING_ACTION_MENU: string[][] = [['新增', '修改', '刪除'], NAVIGATION_BUTTONS];
-const QUERY_RANGE_MENU: string[][] = [['本月', '上月'], ['本週', '上週'], NAVIGATION_BUTTONS];
+const QUERY_RANGE_MENU: string[][] = [
+  ['本月', '上月'],
+  ['本週', '上週'],
+  ['自訂月份', '自訂區間'],
+  NAVIGATION_BUTTONS,
+];
+const TRANSACTION_ACTION_MENU: string[][] = [['修改金額', '修改備註'], ['刪除交易'], NAVIGATION_BUTTONS];
 
 export class BotHandlers {
   private bot: TelegramBot;
@@ -192,6 +199,61 @@ export class BotHandlers {
     }).format(date);
   }
 
+  private parseCustomMonth(monthText: string) {
+    const match = monthText.trim().match(/^(\d{4})-(\d{2})$/);
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    if (month < 1 || month > 12) return null;
+
+    const start = this.taipeiMidnightUtc(year, month, 1);
+    const end = month === 12 ? this.taipeiMidnightUtc(year + 1, 1, 1) : this.taipeiMidnightUtc(year, month + 1, 1);
+    return {
+      label: `${monthText.trim()} 月份`,
+      displayStart: this.formatTaipeiDate(start),
+      displayEnd: this.formatTaipeiDate(new Date(end.getTime() - 24 * 60 * 60 * 1000)),
+      startDate: this.formatSqliteDate(start),
+      endDate: this.formatSqliteDate(end),
+    };
+  }
+
+  private parseCustomDateRange(rangeText: string) {
+    const match = rangeText.trim().match(/^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/);
+    if (!match) return null;
+
+    const [startYear, startMonth, startDay] = match[1].split('-').map(Number);
+    const [endYear, endMonth, endDay] = match[2].split('-').map(Number);
+    const start = this.taipeiMidnightUtc(startYear, startMonth, startDay);
+    const inclusiveEnd = this.taipeiMidnightUtc(endYear, endMonth, endDay);
+    const end = new Date(inclusiveEnd.getTime() + 24 * 60 * 60 * 1000);
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) return null;
+
+    return {
+      label: '自訂區間',
+      displayStart: this.formatTaipeiDate(start),
+      displayEnd: this.formatTaipeiDate(inclusiveEnd),
+      startDate: this.formatSqliteDate(start),
+      endDate: this.formatSqliteDate(end),
+    };
+  }
+
+  private transactionButtonLabel(transaction: Transaction): string {
+    const createdAt = transaction.createdAt as Date | string;
+    const date =
+      typeof createdAt === 'string'
+        ? createdAt.slice(5, 10).replace('-', '/')
+        : this.formatTaipeiDate(createdAt).slice(5).replace('-', '/');
+    const type = transaction.type === 'income' ? '進' : '支';
+    return `#${transaction.transactionId} ${date} ${type} ${transaction.amount}`;
+  }
+
+  private parseTransactionId(text: string): number | null {
+    const match = text.match(/^#(\d+)/);
+    return match ? Number(match[1]) : null;
+  }
+
   private async showMainMenu(chatId: number, userId: number, message: string): Promise<void> {
     const session: UserSession = { userId, step: 'select_type' };
     await cacheManager.setUserSession(userId, session);
@@ -300,6 +362,38 @@ export class BotHandlers {
 
     const ledgers = await ledgerModule.getUserLedgers(userId);
     this.sendKeyboard(chatId, '請選擇要封存的帳本：', this.ledgerButtons(ledgers));
+  }
+
+  async handleArchivedLedgers(chatId: number, userId: number): Promise<void> {
+    const session: UserSession = { userId, step: 'ledger_settings' };
+    await cacheManager.setUserSession(userId, session);
+    const ledgers = await ledgerModule.getArchivedLedgers(userId);
+    const message =
+      ledgers.length > 0
+        ? `封存帳本：\n${ledgers.map((ledger) => `- ${ledger.name}`).join('\n')}`
+        : '目前沒有封存帳本。';
+    this.sendKeyboard(chatId, `${message}\n\n請選擇帳本設定：`, LEDGER_SETTINGS_MENU);
+  }
+
+  async handleUnarchiveLedgerCommand(
+    chatId: number,
+    userId: number,
+    username: string
+  ): Promise<void> {
+    await userModule.getOrCreateUser(userId, username);
+    const ledgers = await ledgerModule.getArchivedLedgers(userId);
+    if (!ledgers.length) {
+      this.sendKeyboard(chatId, '目前沒有封存帳本。\n\n請選擇帳本設定：', LEDGER_SETTINGS_MENU);
+      return;
+    }
+
+    const session: UserSession = {
+      userId,
+      step: 'select_unarchive_ledger',
+      selectedLedgerAction: 'unarchive',
+    };
+    await cacheManager.setUserSession(userId, session);
+    this.sendKeyboard(chatId, '請選擇要取消封存的帳本：', this.ledgerButtons(ledgers));
   }
 
   async handleBackupSettings(chatId: number, userId: number): Promise<void> {
@@ -662,6 +756,42 @@ export class BotHandlers {
     }
   }
 
+  async handleUnarchiveLedgerSelection(
+    chatId: number,
+    userId: number,
+    ledgerName: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session) return;
+
+    const ledgers = await ledgerModule.getArchivedLedgers(userId);
+    const selectedLedger = ledgers.find((l) => l.name === ledgerName);
+    if (!selectedLedger) {
+      this.sendKeyboard(chatId, '找不到該帳本，請重新選擇：', this.ledgerButtons(ledgers));
+      return;
+    }
+
+    try {
+      await ledgerModule.unarchiveLedger(userId, selectedLedger.ledgerId);
+      const archivedLedgers = await ledgerModule.getArchivedLedgers(userId);
+      session.step = archivedLedgers.length ? 'select_unarchive_ledger' : 'ledger_settings';
+      await cacheManager.setUserSession(userId, session);
+      this.sendKeyboard(
+        chatId,
+        `已取消封存「${selectedLedger.name}」。\n\n${
+          archivedLedgers.length ? '請選擇要取消封存的帳本：' : '請選擇帳本設定：'
+        }`,
+        archivedLedgers.length ? this.ledgerButtons(archivedLedgers) : LEDGER_SETTINGS_MENU
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message === 'LEDGER_NAME_DUPLICATE'
+          ? '已有同名未封存帳本，請先修改其中一個帳本名稱。'
+          : '取消封存失敗，請重新選擇。';
+      this.sendKeyboard(chatId, message, this.ledgerButtons(ledgers));
+    }
+  }
+
   async handleLedgerNameInput(
     chatId: number,
     userId: number,
@@ -753,12 +883,65 @@ export class BotHandlers {
     if (!session?.selectedQueryLedger) return;
 
     const range = this.getQueryDateRange(rangeText);
+    if (rangeText === '自訂月份') {
+      session.step = 'input_query_month';
+      await cacheManager.setUserSession(userId, session);
+      this.sendKeyboard(chatId, '請輸入月份，例如：2026-06', [NAVIGATION_BUTTONS]);
+      return;
+    }
+    if (rangeText === '自訂區間') {
+      session.step = 'input_query_date_range';
+      await cacheManager.setUserSession(userId, session);
+      this.sendKeyboard(chatId, '請輸入日期區間，例如：2026-06-01~2026-06-15', [NAVIGATION_BUTTONS]);
+      return;
+    }
     if (!range) {
       this.sendKeyboard(chatId, '請選擇查詢範圍：', QUERY_RANGE_MENU);
       return;
     }
 
-    const selectedLedger = await ledgerModule.getLedgerById(session.selectedQueryLedger, userId);
+    return this.showQueryResult(chatId, userId, session, range);
+  }
+
+  async handleQueryMonthInput(chatId: number, userId: number, monthText: string): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedQueryLedger) return;
+
+    const range = this.parseCustomMonth(monthText);
+    if (!range) {
+      this.sendKeyboard(chatId, '月份格式錯誤，請輸入例如：2026-06', [NAVIGATION_BUTTONS]);
+      return;
+    }
+
+    return this.showQueryResult(chatId, userId, session, range);
+  }
+
+  async handleQueryDateRangeInput(chatId: number, userId: number, rangeText: string): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedQueryLedger) return;
+
+    const range = this.parseCustomDateRange(rangeText);
+    if (!range) {
+      this.sendKeyboard(chatId, '日期區間格式錯誤，請輸入例如：2026-06-01~2026-06-15', [NAVIGATION_BUTTONS]);
+      return;
+    }
+
+    return this.showQueryResult(chatId, userId, session, range);
+  }
+
+  private async showQueryResult(
+    chatId: number,
+    userId: number,
+    session: UserSession,
+    range: {
+      label: string;
+      displayStart: string;
+      displayEnd: string;
+      startDate: string;
+      endDate: string;
+    }
+  ): Promise<void> {
+    const selectedLedger = await ledgerModule.getLedgerById(session.selectedQueryLedger!, userId);
     if (!selectedLedger) {
       this.resetSession(session);
       await cacheManager.setUserSession(userId, session);
@@ -827,6 +1010,176 @@ export class BotHandlers {
     await cacheManager.setUserSession(userId, session);
 
     this.sendKeyboard(chatId, message, MAIN_MENU);
+  }
+
+  async handleTransactionManagement(
+    chatId: number,
+    userId: number,
+    username: string
+  ): Promise<void> {
+    await userModule.getOrCreateUser(userId, username);
+    await ledgerModule.createDefaultLedgers(userId);
+
+    const session: UserSession = { userId, step: 'select_manage_transaction_ledger' };
+    await cacheManager.setUserSession(userId, session);
+
+    const ledgers = await ledgerModule.getUserLedgers(userId);
+    this.sendKeyboard(chatId, '請選擇要管理交易的帳本：', this.ledgerButtons(ledgers));
+  }
+
+  async handleManageTransactionLedgerSelection(
+    chatId: number,
+    userId: number,
+    ledgerName: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session) return;
+
+    const ledgers = await ledgerModule.getUserLedgers(userId);
+    const selectedLedger = ledgers.find((ledger) => ledger.name === ledgerName);
+    if (!selectedLedger) {
+      this.sendKeyboard(chatId, '找不到該帳本，請重新選擇：', this.ledgerButtons(ledgers));
+      return;
+    }
+
+    const transactions = await transactionModule.getTransactionsByLedger(selectedLedger.ledgerId, 10);
+    if (!transactions.length) {
+      this.sendKeyboard(chatId, '這個帳本目前沒有交易紀錄。', MAIN_MENU);
+      this.resetSession(session);
+      await cacheManager.setUserSession(userId, session);
+      return;
+    }
+
+    session.selectedLedger = selectedLedger.ledgerId;
+    session.step = 'select_manage_transaction';
+    await cacheManager.setUserSession(userId, session);
+
+    this.sendKeyboard(
+      chatId,
+      '請選擇要管理的交易：',
+      this.itemButtons(transactions.map((transaction) => this.transactionButtonLabel(transaction)))
+    );
+  }
+
+  async handleManageTransactionSelection(
+    chatId: number,
+    userId: number,
+    transactionText: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedLedger) return;
+
+    const transactionId = this.parseTransactionId(transactionText);
+    if (!transactionId) {
+      const transactions = await transactionModule.getTransactionsByLedger(session.selectedLedger, 10);
+      this.sendKeyboard(
+        chatId,
+        '請選擇要管理的交易：',
+        this.itemButtons(transactions.map((transaction) => this.transactionButtonLabel(transaction)))
+      );
+      return;
+    }
+
+    const transaction = await transactionModule.getTransactionByIdForLedger(
+      transactionId,
+      session.selectedLedger
+    );
+    if (!transaction) {
+      this.sendKeyboard(chatId, '找不到該交易，請重新選擇。', [NAVIGATION_BUTTONS]);
+      return;
+    }
+
+    session.selectedTransaction = transaction.transactionId;
+    session.step = 'select_transaction_action';
+    await cacheManager.setUserSession(userId, session);
+
+    const message =
+      `交易 #${transaction.transactionId}\n` +
+      `類型：${transaction.type === 'income' ? '進帳' : '支出'}\n` +
+      `金額：${transaction.amount}\n` +
+      `類別：${transaction.category}/${transaction.subcategory}\n` +
+      `付款方式：${transaction.paymentMethod}\n` +
+      `備註：${transaction.description || '無'}\n\n` +
+      '請選擇操作：';
+    this.sendKeyboard(chatId, message, TRANSACTION_ACTION_MENU);
+  }
+
+  async handleTransactionActionSelection(
+    chatId: number,
+    userId: number,
+    actionText: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedLedger || !session.selectedTransaction) return;
+
+    if (actionText === '修改金額') {
+      session.selectedTransactionAction = 'edit_amount';
+      session.step = 'input_transaction_amount';
+      await cacheManager.setUserSession(userId, session);
+      this.sendKeyboard(chatId, '請輸入新的金額：', [NAVIGATION_BUTTONS]);
+      return;
+    }
+
+    if (actionText === '修改備註') {
+      session.selectedTransactionAction = 'edit_note';
+      session.step = 'input_transaction_note';
+      await cacheManager.setUserSession(userId, session);
+      this.sendKeyboard(chatId, '請輸入新的備註，或按「略過」清空備註：', [['略過'], NAVIGATION_BUTTONS]);
+      return;
+    }
+
+    if (actionText === '刪除交易') {
+      await transactionModule.deleteTransaction(session.selectedTransaction, session.selectedLedger);
+      this.resetSession(session);
+      await cacheManager.setUserSession(userId, session);
+      this.sendKeyboard(chatId, '已刪除交易。', MAIN_MENU);
+      return;
+    }
+
+    this.sendKeyboard(chatId, '請選擇操作：', TRANSACTION_ACTION_MENU);
+  }
+
+  async handleTransactionAmountInput(
+    chatId: number,
+    userId: number,
+    amountText: string
+  ): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedLedger || !session.selectedTransaction) return;
+
+    const amount = parseFloat(amountText);
+    if (isNaN(amount) || amount <= 0) {
+      this.sendKeyboard(chatId, '無效的金額，請重新輸入：', [NAVIGATION_BUTTONS]);
+      return;
+    }
+
+    const transaction = await transactionModule.updateTransactionAmount(
+      session.selectedTransaction,
+      session.selectedLedger,
+      amount
+    );
+    this.resetSession(session);
+    await cacheManager.setUserSession(userId, session);
+    this.sendKeyboard(chatId, `已更新交易 #${transaction.transactionId} 金額為 ${transaction.amount}。`, MAIN_MENU);
+  }
+
+  async handleTransactionNoteInput(chatId: number, userId: number, note: string): Promise<void> {
+    const session = await cacheManager.getUserSession(userId);
+    if (!session?.selectedLedger || !session.selectedTransaction) return;
+
+    const description = note === '略過' ? '' : note.trim();
+    const transaction = await transactionModule.updateTransactionDescription(
+      session.selectedTransaction,
+      session.selectedLedger,
+      description
+    );
+    this.resetSession(session);
+    await cacheManager.setUserSession(userId, session);
+    this.sendKeyboard(
+      chatId,
+      `已更新交易 #${transaction.transactionId} 備註為「${description || '無'}」。`,
+      MAIN_MENU
+    );
   }
 
   async handleTypeSelection(
@@ -1035,6 +1388,8 @@ export class BotHandlers {
     session.selectedSubcategory = undefined;
     session.selectedPayment = undefined;
     session.selectedAmount = undefined;
+    session.selectedTransaction = undefined;
+    session.selectedTransactionAction = undefined;
     session.selectedSettingTarget = undefined;
     session.selectedSettingAction = undefined;
     session.selectedSettingCategory = undefined;
@@ -1075,6 +1430,12 @@ export class BotHandlers {
         );
       }
 
+      case 'input_query_month':
+      case 'input_query_date_range':
+        session.step = 'select_query_range';
+        await cacheManager.setUserSession(userId, session);
+        return this.sendKeyboard(chatId, '請選擇查詢範圍：', QUERY_RANGE_MENU);
+
       case 'settings_select_target':
         return this.handleSettings(chatId, userId);
 
@@ -1111,7 +1472,38 @@ export class BotHandlers {
 
       case 'select_rename_ledger':
       case 'select_archive_ledger':
+      case 'select_unarchive_ledger':
         return this.handleLedgerSettings(chatId, userId);
+
+      case 'select_manage_transaction_ledger':
+        return this.showMainMenu(chatId, userId, '請選擇您要進行的操作：');
+
+      case 'select_manage_transaction': {
+        session.step = 'select_manage_transaction_ledger';
+        session.selectedLedger = undefined;
+        await cacheManager.setUserSession(userId, session);
+        const ledgers = await ledgerModule.getUserLedgers(userId);
+        return this.sendKeyboard(
+          chatId,
+          '請選擇要管理交易的帳本：',
+          this.ledgerButtons(ledgers)
+        );
+      }
+
+      case 'select_transaction_action':
+      case 'input_transaction_amount':
+      case 'input_transaction_note': {
+        session.step = 'select_manage_transaction';
+        session.selectedTransaction = undefined;
+        session.selectedTransactionAction = undefined;
+        await cacheManager.setUserSession(userId, session);
+        const transactions = await transactionModule.getTransactionsByLedger(session.selectedLedger!, 10);
+        return this.sendKeyboard(
+          chatId,
+          '請選擇要管理的交易：',
+          this.itemButtons(transactions.map((transaction) => this.transactionButtonLabel(transaction)))
+        );
+      }
 
       case 'input_ledger_name': {
         if (session.selectedLedgerAction === 'add') {
@@ -1225,6 +1617,10 @@ export class BotHandlers {
           return this.handleQuery(chatId, userId, username);
         }
 
+        if (text === '交易管理') {
+          return this.handleTransactionManagement(chatId, userId, username);
+        }
+
         if (text === '設定') {
           return this.handleSettings(chatId, userId);
         }
@@ -1243,6 +1639,14 @@ export class BotHandlers {
 
         if (text === '封存帳本') {
           return this.handleArchiveLedgerCommand(chatId, userId, username);
+        }
+
+        if (text === '查看封存帳本') {
+          return this.handleArchivedLedgers(chatId, userId);
+        }
+
+        if (text === '取消封存帳本') {
+          return this.handleUnarchiveLedgerCommand(chatId, userId, username);
         }
 
         if (text === '備份目前設定') {
@@ -1299,6 +1703,12 @@ export class BotHandlers {
             if (text === '封存帳本') {
               return this.handleArchiveLedgerCommand(chatId, userId, username);
             }
+            if (text === '查看封存帳本') {
+              return this.handleArchivedLedgers(chatId, userId);
+            }
+            if (text === '取消封存帳本') {
+              return this.handleUnarchiveLedgerCommand(chatId, userId, username);
+            }
             return this.handleLedgerSettings(chatId, userId);
           case 'settings':
             return this.handleSettingsTargetSelection(chatId, userId, text);
@@ -1314,12 +1724,28 @@ export class BotHandlers {
             return this.handleQueryLedgerSelection(chatId, userId, text);
           case 'select_query_range':
             return this.handleQueryRangeSelection(chatId, userId, text);
+          case 'input_query_month':
+            return this.handleQueryMonthInput(chatId, userId, text);
+          case 'input_query_date_range':
+            return this.handleQueryDateRangeInput(chatId, userId, text);
           case 'select_rename_ledger':
             return this.handleRenameLedgerSelection(chatId, userId, text);
           case 'select_archive_ledger':
             return this.handleArchiveLedgerSelection(chatId, userId, text);
+          case 'select_unarchive_ledger':
+            return this.handleUnarchiveLedgerSelection(chatId, userId, text);
           case 'input_ledger_name':
             return this.handleLedgerNameInput(chatId, userId, text);
+          case 'select_manage_transaction_ledger':
+            return this.handleManageTransactionLedgerSelection(chatId, userId, text);
+          case 'select_manage_transaction':
+            return this.handleManageTransactionSelection(chatId, userId, text);
+          case 'select_transaction_action':
+            return this.handleTransactionActionSelection(chatId, userId, text);
+          case 'input_transaction_amount':
+            return this.handleTransactionAmountInput(chatId, userId, text);
+          case 'input_transaction_note':
+            return this.handleTransactionNoteInput(chatId, userId, text);
           case 'select_ledger':
             return this.handleLedgerSelection(chatId, userId, text);
           case 'select_category':

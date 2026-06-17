@@ -54,6 +54,13 @@ export class LedgerModule {
     return ledger || null;
   }
 
+  async getArchivedLedgers(userId: number): Promise<Ledger[]> {
+    return db.all<Ledger>(
+      'SELECT * FROM ledgers WHERE userId = ? AND COALESCE(isArchived, 0) = 1 ORDER BY ledgerId',
+      [userId]
+    );
+  }
+
   async renameLedger(userId: number, ledgerId: number, newName: string): Promise<Ledger> {
     const normalizedName = newName.trim();
     if (!normalizedName) {
@@ -114,6 +121,31 @@ export class LedgerModule {
 
     const result = await db.run(
       'UPDATE ledgers SET isArchived = 1, updatedAt = CURRENT_TIMESTAMP WHERE userId = ? AND ledgerId = ? AND COALESCE(isArchived, 0) = 0',
+      [userId, ledgerId]
+    );
+    if (!result.changes) {
+      throw new Error('LEDGER_NOT_FOUND');
+    }
+
+    await cacheManager.invalidateLedgerCache(userId);
+  }
+
+  async unarchiveLedger(userId: number, ledgerId: number): Promise<void> {
+    const ledger = await this.getLedgerById(ledgerId, userId);
+    if (!ledger) {
+      throw new Error('LEDGER_NOT_FOUND');
+    }
+
+    const duplicate = await db.get<Ledger>(
+      'SELECT * FROM ledgers WHERE userId = ? AND name = ? AND ledgerId <> ? AND COALESCE(isArchived, 0) = 0',
+      [userId, ledger.name, ledgerId]
+    );
+    if (duplicate) {
+      throw new Error('LEDGER_NAME_DUPLICATE');
+    }
+
+    const result = await db.run(
+      'UPDATE ledgers SET isArchived = 0, updatedAt = CURRENT_TIMESTAMP WHERE userId = ? AND ledgerId = ? AND COALESCE(isArchived, 0) = 1',
       [userId, ledgerId]
     );
     if (!result.changes) {
