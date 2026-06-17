@@ -94,8 +94,8 @@ function renderIncomeExpenseChart(dashboard) {
     <div class="donut-layout">
       <div class="donut" style="${background ? `background:${background}` : ''}">
         <div class="donut-center">
-          <span>總額</span>
-          <strong>${formatMoney(total)}</strong>
+          <span>淨額</span>
+          <strong>${formatMoney(dashboard.balance)}</strong>
         </div>
       </div>
       <div class="legend">
