@@ -20,6 +20,7 @@ const api = async (path, options = {}) => {
 
 const formatMoney = (value) =>
   Number(value || 0).toLocaleString('zh-TW', { maximumFractionDigits: 2 });
+const chartColors = ['#146c94', '#0f7b45', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#64748b'];
 
 const today = new Date();
 const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -61,6 +62,9 @@ async function loadDashboard() {
   document.querySelector('#metric-expense').textContent = formatMoney(dashboard.totalExpense);
   document.querySelector('#metric-balance').textContent = formatMoney(dashboard.balance);
   document.querySelector('#metric-count').textContent = dashboard.transactionCount || 0;
+  renderIncomeExpenseChart(dashboard);
+  renderExpenseCategoryChart(dashboard.expenseCategories || []);
+  renderLedgerExpenseChart(dashboard.ledgerStats || []);
   document.querySelector('#dashboard-ledgers').innerHTML =
     state.ledgers
       .map(
@@ -73,6 +77,85 @@ async function loadDashboard() {
           </div>`
       )
       .join('') || '<div class="row">尚無帳本</div>';
+}
+
+function renderIncomeExpenseChart(dashboard) {
+  const income = Number(dashboard.totalIncome || 0);
+  const expense = Number(dashboard.totalExpense || 0);
+  const total = income + expense;
+  const incomeDeg = total > 0 ? (income / total) * 360 : 0;
+  const expenseDeg = total > 0 ? (expense / total) * 360 : 0;
+  const background =
+    total > 0
+      ? `conic-gradient(#0f7b45 0deg ${incomeDeg}deg, #b42318 ${incomeDeg}deg ${incomeDeg + expenseDeg}deg)`
+      : '';
+
+  document.querySelector('#income-expense-chart').innerHTML = `
+    <div class="donut-layout">
+      <div class="donut" style="${background ? `background:${background}` : ''}">
+        <div class="donut-center">
+          <span>總額</span>
+          <strong>${formatMoney(total)}</strong>
+        </div>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><span class="swatch" style="background:#0f7b45"></span><span>進帳</span><strong>${formatMoney(income)}</strong></div>
+        <div class="legend-item"><span class="swatch" style="background:#b42318"></span><span>支出</span><strong>${formatMoney(expense)}</strong></div>
+        <div class="legend-item"><span class="swatch" style="background:#64748b"></span><span>結餘</span><strong>${formatMoney(dashboard.balance)}</strong></div>
+      </div>
+    </div>`;
+}
+
+function renderExpenseCategoryChart(categories) {
+  const total = categories.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  let currentDeg = 0;
+  const segments = categories.map((item, index) => {
+    const degrees = total > 0 ? (Number(item.total) / total) * 360 : 0;
+    const start = currentDeg;
+    currentDeg += degrees;
+    return `${chartColors[index % chartColors.length]} ${start}deg ${currentDeg}deg`;
+  });
+  const background = segments.length ? `conic-gradient(${segments.join(', ')})` : '';
+
+  document.querySelector('#expense-category-chart').innerHTML = `
+    <div class="donut-layout">
+      <div class="donut" style="${background ? `background:${background}` : ''}">
+        <div class="donut-center">
+          <span>支出</span>
+          <strong>${formatMoney(total)}</strong>
+        </div>
+      </div>
+      <div class="legend">
+        ${
+          categories
+            .map(
+              (item, index) => `
+                <div class="legend-item">
+                  <span class="swatch" style="background:${chartColors[index % chartColors.length]}"></span>
+                  <span>${escapeHtml(item.category)}</span>
+                  <strong>${formatMoney(item.total)}</strong>
+                </div>`
+            )
+            .join('') || '<div class="row-meta">本月尚無支出分類資料</div>'
+        }
+      </div>
+    </div>`;
+}
+
+function renderLedgerExpenseChart(ledgerStats) {
+  const maxExpense = Math.max(...ledgerStats.map((item) => Number(item.totalExpense || 0)), 0);
+  document.querySelector('#ledger-expense-chart').innerHTML =
+    ledgerStats
+      .map((item) => {
+        const percent = maxExpense > 0 ? (Number(item.totalExpense || 0) / maxExpense) * 100 : 0;
+        return `
+          <div class="bar-row">
+            <div class="bar-label" title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</div>
+            <div class="bar-track"><div class="bar-fill" style="width:${percent}%"></div></div>
+            <div class="bar-value">${formatMoney(item.totalExpense)}</div>
+          </div>`;
+      })
+      .join('') || '<div class="row">尚無帳本資料</div>';
 }
 
 function renderLedgerSelect() {

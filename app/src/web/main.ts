@@ -114,6 +114,8 @@ async function startWebServer() {
     const ledgers = await ledgerModule.getUserLedgers(userId);
     const range = currentMonthRange();
     const totals = { totalIncome: 0, totalExpense: 0, transactionCount: 0 };
+    const ledgerStats = [];
+    const expenseCategoryMap = new Map<string, number>();
 
     for (const ledger of ledgers) {
       const stats = await transactionModule.getLedgerStatsByDateRange(
@@ -124,12 +126,34 @@ async function startWebServer() {
       totals.totalIncome += stats.totalIncome || 0;
       totals.totalExpense += stats.totalExpense || 0;
       totals.transactionCount += stats.transactionCount || 0;
+      ledgerStats.push({
+        ledgerId: ledger.ledgerId,
+        name: ledger.name,
+        totalIncome: stats.totalIncome || 0,
+        totalExpense: stats.totalExpense || 0,
+        balance: (stats.totalIncome || 0) - (stats.totalExpense || 0),
+        transactionCount: stats.transactionCount || 0,
+      });
+
+      const categorySummary = await transactionModule.getCategorySummaryByDateRange(
+        ledger.ledgerId,
+        range.startDate,
+        range.endDate
+      );
+      for (const item of categorySummary) {
+        if (item.type !== 'expense') continue;
+        expenseCategoryMap.set(item.category, (expenseCategoryMap.get(item.category) || 0) + item.total);
+      }
     }
 
     res.json({
       ...totals,
       balance: totals.totalIncome - totals.totalExpense,
       ledgerCount: ledgers.length,
+      ledgerStats,
+      expenseCategories: Array.from(expenseCategoryMap.entries())
+        .map(([category, total]) => ({ category, total }))
+        .sort((a, b) => b.total - a.total),
     });
   }));
 
