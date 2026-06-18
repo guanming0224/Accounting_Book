@@ -779,6 +779,236 @@ function renderSplit(s) {
     </div>`;
 }
 
+// ── Utility Meter Tracking ────────────────────────────────────────────────
+const METER_TYPE_LABEL = { electricity: '⚡ 電費', water: '💧 水費', gas: '🔥 瓦斯費', other: '📊 其他' };
+
+async function loadUtility() {
+  const list = document.getElementById('meters-list');
+  if (!list) return;
+  list.innerHTML = '<div class="empty-state">載入中...</div>';
+  try {
+    const resp = await apiFetch('/api/utility/meters');
+    const meters = await resp.json();
+    if (!meters.length) {
+      list.innerHTML = '<div class="empty-state">尚無表計，點擊「+ 新增表計」開始追蹤</div>';
+      return;
+    }
+    list.innerHTML = meters.map(m => renderMeterCard(m)).join('');
+    meters.forEach(m => renderUsageChart(m));
+  } catch (err) {
+    list.innerHTML = `<div class="empty-state">載入失敗：${err.message}</div>`;
+  }
+}
+
+function renderMeterCard(m) {
+  const typeLabel = METER_TYPE_LABEL[m.type] || m.type;
+  const latestVal = m.latestReading ? m.latestReading.reading : '—';
+  const latestDate = m.latestReading ? m.latestReading.readDate : '尚無記錄';
+  const usageStr = m.currentUsage !== null ? `${m.currentUsage} ${m.unit}` : '—';
+  const costStr = m.currentCost !== null ? `NT$ ${m.currentCost.toFixed(0)}` : '—';
+
+  const readingsHtml = m.readings.length ? `
+    <table class="utility-table">
+      <thead>
+        <tr>
+          <th>抄錶日期</th><th>錶度數</th><th>用量 (${m.unit})</th><th>費用 (TWD)</th><th>備註</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${m.readings.map(r => `
+          <tr>
+            <td>${r.readDate}</td>
+            <td>${r.reading}</td>
+            <td>${r.usage !== null ? r.usage : '—'}</td>
+            <td class="${r.cost !== null ? (r.cost > 1000 ? 'cost-high' : 'cost-normal') : ''}">${r.cost !== null ? 'NT$ ' + r.cost.toFixed(0) : '—'}</td>
+            <td class="text-muted" style="font-size:12px">${r.note || ''}</td>
+            <td>
+              ${r.usage !== null && r.cost !== null ? `<button class="secondary small" data-reading-to-tx="${r.readingId}" data-meter-id="${m.meterId}">記帳</button>` : ''}
+              <button class="danger small" data-reading-delete="${r.readingId}">刪</button>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>` : '<div class="empty-state" style="font-size:13px">尚無抄錶記錄</div>';
+
+  return `
+    <div class="meter-card panel" id="meter-card-${m.meterId}">
+      <div class="meter-card-header">
+        <div>
+          <span class="meter-type-badge">${typeLabel}</span>
+          <span class="meter-name">${m.name}</span>
+        </div>
+        <div class="meter-header-actions">
+          <button class="secondary small" data-meter-edit="${m.meterId}">編輯</button>
+          <button class="danger small" data-meter-delete="${m.meterId}">刪除</button>
+        </div>
+      </div>
+      <div class="meter-stats">
+        <div class="meter-stat">
+          <div class="meter-stat-label">最新錶度</div>
+          <div class="meter-stat-value">${latestVal}</div>
+          <div class="meter-stat-sub">${latestDate}</div>
+        </div>
+        <div class="meter-stat">
+          <div class="meter-stat-label">本期用量</div>
+          <div class="meter-stat-value">${usageStr}</div>
+        </div>
+        <div class="meter-stat">
+          <div class="meter-stat-label">本期費用</div>
+          <div class="meter-stat-value cost-highlight">${costStr}</div>
+        </div>
+        <div class="meter-stat">
+          <div class="meter-stat-label">費率</div>
+          <div class="meter-stat-value" style="font-size:14px">NT$ ${m.ratePerUnit}/${m.unit}</div>
+          <div class="meter-stat-sub">基本費 NT$ ${m.baseCharge}</div>
+        </div>
+      </div>
+      <canvas id="chart-meter-${m.meterId}" class="utility-chart" height="80"></canvas>
+      <div id="reading-form-${m.meterId}" class="reading-form" hidden>
+        <form data-add-reading="${m.meterId}" class="form-row" style="align-items:flex-end;gap:8px;flex-wrap:wrap">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px">抄錶日期
+            <input type="date" name="readDate" value="${new Date().toISOString().slice(0,10)}" required style="width:140px" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px">錶度數 (${m.unit})
+            <input type="number" name="reading" placeholder="${latestVal !== '—' ? '上次：' + latestVal : '首次抄錶'}" step="0.01" min="0" required style="width:120px" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px">備註
+            <input type="text" name="note" placeholder="選填" style="width:120px" />
+          </label>
+          <button type="submit" class="primary small">記錄</button>
+          <button type="button" class="secondary small" data-hide-reading-form="${m.meterId}">取消</button>
+        </form>
+      </div>
+      <div class="meter-card-footer">
+        <button class="secondary" data-show-reading-form="${m.meterId}">+ 新增抄錶</button>
+      </div>
+      <details class="readings-history">
+        <summary>抄錶記錄（${m.readings.length} 筆）</summary>
+        ${readingsHtml}
+      </details>
+    </div>`;
+}
+
+function renderUsageChart(m) {
+  const canvas = document.getElementById(`chart-meter-${m.meterId}`);
+  if (!canvas) return;
+  const readings = [...m.readings].reverse();
+  if (readings.length < 2) { canvas.hidden = true; return; }
+  canvas.hidden = false;
+  const usages = readings.slice(1).map((r, i) => ({
+    label: r.readDate,
+    usage: parseFloat((r.reading - readings[i].reading).toFixed(4)),
+  }));
+  if (!usages.length) { canvas.hidden = true; return; }
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth || 600;
+  const H = 80;
+  canvas.width = W;
+  canvas.height = H;
+  const maxUsage = Math.max(...usages.map(u => u.usage), 1);
+  const barW = Math.max(20, (W - 40) / usages.length - 6);
+  const pad = { l: 10, r: 10, t: 14, b: 20 };
+  const cW = W - pad.l - pad.r;
+  const cH = H - pad.t - pad.b;
+  ctx.clearRect(0, 0, W, H);
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#38bdf8';
+  usages.forEach((u, i) => {
+    const x = pad.l + (i / usages.length) * cW;
+    const bH = (u.usage / maxUsage) * cH;
+    const y = pad.t + cH - bH;
+    ctx.fillStyle = accent + '99';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, barW, bH, 3); else ctx.rect(x, y, barW, bH);
+    ctx.fill();
+    ctx.fillStyle = accent;
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(u.usage.toString(), x + barW / 2, y - 2);
+    ctx.fillStyle = '#888';
+    ctx.font = '9px sans-serif';
+    ctx.fillText(u.label.slice(5), x + barW / 2, H - 2);
+  });
+}
+
+function openMeterEdit(meterId, meter) {
+  const card = document.getElementById(`meter-card-${meterId}`);
+  if (!card) return;
+  const existing = card.querySelector('.meter-edit-form');
+  if (existing) { existing.remove(); return; }
+  const editDiv = document.createElement('div');
+  editDiv.className = 'meter-edit-form form-card';
+  editDiv.style.marginTop = '12px';
+  editDiv.innerHTML = `
+    <form data-save-meter="${meterId}" class="form-row" style="flex-wrap:wrap;gap:8px;align-items:flex-end">
+      <input type="text" name="name" value="${meter.name}" placeholder="名稱" required style="width:120px" />
+      <select name="type">${['electricity','water','gas','other'].map(t => `<option value="${t}" ${meter.type===t?'selected':''}>${METER_TYPE_LABEL[t]||t}</option>`).join('')}</select>
+      <input type="text" name="unit" value="${meter.unit}" placeholder="單位" style="width:60px" />
+      <input type="number" name="ratePerUnit" value="${meter.ratePerUnit}" step="0.01" min="0" style="width:80px" placeholder="費率" />
+      <input type="number" name="baseCharge" value="${meter.baseCharge}" step="0.01" min="0" style="width:80px" placeholder="基本費" />
+      <input type="text" name="note" value="${meter.note||''}" placeholder="備註" style="width:120px" />
+      <button type="submit" class="primary small">儲存</button>
+      <button type="button" class="secondary small" data-cancel-meter-edit="${meterId}">取消</button>
+    </form>`;
+  card.querySelector('.meter-card-header').after(editDiv);
+}
+
+function showReadingToTxModal(readingId) {
+  const existing = document.getElementById('reading-tx-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'reading-tx-modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-box" style="max-width:380px">
+      <h3 style="margin:0 0 16px">轉為記帳交易</h3>
+      <form id="reading-tx-form">
+        <input type="hidden" name="readingId" value="${readingId}" />
+        <div style="margin-bottom:10px">
+          <label style="font-size:13px;display:block;margin-bottom:4px">選擇帳本</label>
+          <select name="ledgerId" style="width:100%">${(state.ledgers||[]).map(l=>`<option value="${l.ledgerId}">${l.name}</option>`).join('')}</select>
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="font-size:13px;display:block;margin-bottom:4px">付款方式</label>
+          <select name="paymentMethod" style="width:100%">
+            ${(state.settings?.paymentMethods||[]).map(m=>`<option value="${m.name}">${m.name}</option>`).join('')}
+            <option value="轉帳">轉帳</option>
+            <option value="現金">現金</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <button type="submit" class="primary" style="flex:1">記入帳本</button>
+          <button type="button" id="reading-tx-cancel" class="secondary">取消</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(modal);
+  document.getElementById('reading-tx-cancel')?.addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.getElementById('reading-tx-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      const resp = await apiFetch(`/api/utility/readings/${readingId}/to-transaction`, {
+        method: 'POST',
+        body: JSON.stringify({ ledgerId: fd.get('ledgerId'), paymentMethod: fd.get('paymentMethod') })
+      });
+      const data = await resp.json();
+      modal.remove();
+      alert(`✓ 已記入帳本！\n費用：NT$ ${data.cost}\n用量：${data.usage}\n${data.description}`);
+    } catch (err) { alert('記帳失敗：' + err.message); }
+  });
+}
+
+document.getElementById('meter-form')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(e.target));
+  try {
+    await apiFetch('/api/utility/meters', { method: 'POST', body: JSON.stringify(data) });
+    document.getElementById('meter-create-form').hidden = true;
+    e.target.reset();
+    loadUtility();
+  } catch (err) { alert('新增失敗：' + err.message); }
+});
+
 // ── Settings ──────────────────────────────────────────────────────────────
 async function loadSettings() {
   state.settings = await api('/api/settings');
@@ -1292,6 +1522,7 @@ function setView(view) {
     reminders: '帳單提醒',
     reports: '趨勢報表',
     splits: '分帳',
+    utility: '水電用量追蹤',
     settings: '設定',
   };
   document.querySelector('#page-title').textContent = titles[view] || view;
@@ -1303,6 +1534,7 @@ function setView(view) {
     loadTemplates();
     initTemplateForm();
   }
+  if (view === 'utility') loadUtility();
 }
 
 async function refreshCurrentView() {
@@ -1317,6 +1549,7 @@ async function refreshCurrentView() {
   if (state.currentView === 'recurring') await loadRecurring();
   if (state.currentView === 'reminders') await loadReminders();
   if (state.currentView === 'splits') await loadSplits();
+  if (state.currentView === 'utility') await loadUtility();
 }
 
 // ── Event delegation ──────────────────────────────────────────────────────
@@ -1555,6 +1788,44 @@ document.addEventListener('click', async (event) => {
       const id = Number(target.dataset.txId);
       if (target.checked) selectedTxIds.add(id); else selectedTxIds.delete(id);
       updateBatchBar();
+      return;
+    } else if (target.id === 'add-meter-btn') {
+      const form = document.getElementById('meter-create-form');
+      if (form) form.hidden = !form.hidden;
+      return;
+    } else if (target.id === 'meter-form-cancel') {
+      const form = document.getElementById('meter-create-form');
+      if (form) form.hidden = true;
+      return;
+    } else if (target.dataset.showReadingForm) {
+      const form = document.getElementById(`reading-form-${target.dataset.showReadingForm}`);
+      if (form) form.hidden = false;
+      return;
+    } else if (target.dataset.hideReadingForm) {
+      const form = document.getElementById(`reading-form-${target.dataset.hideReadingForm}`);
+      if (form) form.hidden = true;
+      return;
+    } else if (target.dataset.meterDelete) {
+      if (!confirm('確定刪除此表計？所有抄錶記錄也會一併刪除。')) return;
+      await apiFetch(`/api/utility/meters/${target.dataset.meterDelete}`, { method: 'DELETE' });
+      loadUtility();
+      return;
+    } else if (target.dataset.meterEdit) {
+      const resp = await apiFetch('/api/utility/meters');
+      const meters = await resp.json();
+      const meter = meters.find(m => m.meterId == target.dataset.meterEdit);
+      if (meter) openMeterEdit(meter.meterId, meter);
+      return;
+    } else if (target.dataset.cancelMeterEdit) {
+      document.getElementById(`meter-card-${target.dataset.cancelMeterEdit}`)?.querySelector('.meter-edit-form')?.remove();
+      return;
+    } else if (target.dataset.readingDelete) {
+      if (!confirm('確定刪除此抄錶記錄？')) return;
+      await apiFetch(`/api/utility/readings/${target.dataset.readingDelete}`, { method: 'DELETE' });
+      loadUtility();
+      return;
+    } else if (target.dataset.readingToTx) {
+      showReadingToTxModal(target.dataset.readingToTx);
       return;
     } else {
       return;
@@ -1837,10 +2108,33 @@ document.querySelectorAll('.setting-create').forEach((form) => {
   });
 });
 
-// Subcategory create forms (delegated)
+// Subcategory create forms + utility forms (delegated)
 document.addEventListener('submit', async (event) => {
   const form = event.target;
-  if (!(form instanceof HTMLFormElement) || !form.classList.contains('subcategory-create')) return;
+  if (!(form instanceof HTMLFormElement)) return;
+
+  if (form.dataset.addReading) {
+    event.preventDefault();
+    const meterId = form.dataset.addReading;
+    const data = Object.fromEntries(new FormData(form));
+    try {
+      await apiFetch(`/api/utility/meters/${meterId}/readings`, { method: 'POST', body: JSON.stringify(data) });
+      loadUtility();
+    } catch (err) { alert('新增失敗：' + err.message); }
+    return;
+  }
+  if (form.dataset.saveMeter) {
+    event.preventDefault();
+    const meterId = form.dataset.saveMeter;
+    const data = Object.fromEntries(new FormData(form));
+    try {
+      await apiFetch(`/api/utility/meters/${meterId}`, { method: 'PATCH', body: JSON.stringify(data) });
+      loadUtility();
+    } catch (err) { alert('儲存失敗：' + err.message); }
+    return;
+  }
+
+  if (!form.classList.contains('subcategory-create')) return;
   event.preventDefault();
   const name = form.name.value.trim();
   if (!name) return;

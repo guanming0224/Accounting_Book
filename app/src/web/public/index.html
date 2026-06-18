@@ -32,6 +32,7 @@
         <button class="nav-button" data-view="reports">趨勢報表</button>
         <div class="nav-group-label">其他</div>
         <button class="nav-button" data-view="splits">分帳</button>
+        <button class="nav-button" data-view="utility">🔌 水電追蹤</button>
         <button class="nav-button" data-view="settings">設定</button>
       </nav>
     </aside>
@@ -445,6 +446,47 @@
             </div>
           </form>
         </section>
+      </section>
+
+      <!-- ── 水電追蹤 ────────────────────────────────────────────────────── -->
+      <section id="utility-view" class="view" hidden>
+        <div class="view-header">
+          <h1>水電用量追蹤</h1>
+          <button id="add-meter-btn" class="primary">+ 新增表計</button>
+        </div>
+        <div id="meter-create-form" class="form-card panel" hidden>
+          <h3 style="margin:0 0 14px">新增表計</h3>
+          <form id="meter-form">
+            <div class="form-row">
+              <input type="text" name="name" placeholder="名稱（如：電費、水費）" required style="flex:2" />
+              <select name="type">
+                <option value="electricity">電費</option>
+                <option value="water">水費</option>
+                <option value="gas">瓦斯費</option>
+                <option value="other">其他</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <input type="text" name="unit" placeholder="單位（度/噸/m³）" required style="width:100px" />
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+                每單位費率 (TWD)
+                <input type="number" name="ratePerUnit" placeholder="例：4.3" min="0" step="0.01" required style="width:100px" />
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+                基本費 (TWD)
+                <input type="number" name="baseCharge" placeholder="0" min="0" step="0.01" style="width:90px" />
+              </label>
+            </div>
+            <div class="form-row">
+              <input type="text" name="note" placeholder="備註（選填）" style="flex:1" />
+            </div>
+            <div class="form-row">
+              <button type="submit" class="primary">建立</button>
+              <button type="button" id="meter-form-cancel" class="secondary">取消</button>
+            </div>
+          </form>
+        </div>
+        <div id="meters-list"></div>
       </section>
 
       <!-- ── 設定 ─────────────────────────────────────────────────────────── -->
