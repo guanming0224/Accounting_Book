@@ -1263,6 +1263,166 @@ async function startWebServer() {
     res.json(result);
   }));
 
+  // ── Utility Meters ────────────────────────────────────────────────────────
+  app.get('/api/utility/meters', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const meters = await db.all<any>('SELECT * FROM utility_meters WHERE userId = ? ORDER BY createdAt ASC', [userId]);
+
+    const result = await Promise.all(meters.map(async (m: any) => {
+      const readings = await db.all<any>(
+        'SELECT * FROM utility_readings WHERE meterId = ? ORDER BY readDate DESC LIMIT 13',
+        [m.meterId]
+      );
+      // Compute usage for each reading (current - previous)
+      const readingsWithUsage = readings.map((r: any, i: number) => {
+        const prev = readings[i + 1];
+        const usage = prev ? parseFloat((r.reading - prev.reading).toFixed(4)) : null;
+        const cost = usage !== null ? parseFloat((usage * m.ratePerUnit + (i === 0 ? m.baseCharge : 0)).toFixed(2)) : null;
+        return { ...r, usage, cost };
+      });
+      const latest = readings[0] || null;
+      const prev = readings[1] || null;
+      const currentUsage = latest && prev ? parseFloat((latest.reading - prev.reading).toFixed(4)) : null;
+      const currentCost = currentUsage !== null ? parseFloat((currentUsage * m.ratePerUnit + m.baseCharge).toFixed(2)) : null;
+      return { ...m, readings: readingsWithUsage, latestReading: latest, currentUsage, currentCost };
+    }));
+
+    res.json(result);
+  }));
+
+  app.post('/api/utility/meters', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { name, type, unit, ratePerUnit, baseCharge, note } = req.body;
+    if (!name) throw new Error('NAME_REQUIRED');
+    const result = await db.run(
+      `INSERT INTO utility_meters (userId, name, type, unit, ratePerUnit, baseCharge, note) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, String(name), String(type || 'electricity'), String(unit || '度'),
+       Number(ratePerUnit || 0), Number(baseCharge || 0), String(note || '')]
+    );
+    res.json(await db.get<any>('SELECT * FROM utility_meters WHERE meterId = ?', [result.lastID]));
+  }));
+
+  app.patch('/api/utility/meters/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const meter = await db.get<any>('SELECT * FROM utility_meters WHERE meterId = ? AND userId = ?', [Number(req.params.id), userId]);
+    if (!meter) throw new Error('METER_NOT_FOUND');
+    const name = req.body.name !== undefined ? String(req.body.name) : meter.name;
+    const type = req.body.type !== undefined ? String(req.body.type) : meter.type;
+    const unit = req.body.unit !== undefined ? String(req.body.unit) : meter.unit;
+    const ratePerUnit = req.body.ratePerUnit !== undefined ? Number(req.body.ratePerUnit) : meter.ratePerUnit;
+    const baseCharge = req.body.baseCharge !== undefined ? Number(req.body.baseCharge) : meter.baseCharge;
+    const note = req.body.note !== undefined ? String(req.body.note) : meter.note;
+    await db.run(
+      'UPDATE utility_meters SET name=?, type=?, unit=?, ratePerUnit=?, baseCharge=?, note=?, updatedAt=CURRENT_TIMESTAMP WHERE meterId=?',
+      [name, type, unit, ratePerUnit, baseCharge, note, meter.meterId]
+    );
+    res.json(await db.get<any>('SELECT * FROM utility_meters WHERE meterId = ?', [meter.meterId]));
+  }));
+
+  app.delete('/api/utility/meters/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const result = await db.run('DELETE FROM utility_meters WHERE meterId = ? AND userId = ?', [Number(req.params.id), userId]);
+    if (!result.changes) throw new Error('METER_NOT_FOUND');
+    res.json({ ok: true });
+  }));
+
+  // ── Utility Readings ──────────────────────────────────────────────────────
+  app.get('/api/utility/meters/:id/readings', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const meter = await db.get<any>('SELECT * FROM utility_meters WHERE meterId = ? AND userId = ?', [Number(req.params.id), userId]);
+    if (!meter) throw new Error('METER_NOT_FOUND');
+    const readings = await db.all<any>(
+      'SELECT * FROM utility_readings WHERE meterId = ? ORDER BY readDate DESC',
+      [meter.meterId]
+    );
+    const readingsWithUsage = readings.map((r: any, i: number) => {
+      const prev = readings[i + 1];
+      const usage = prev ? parseFloat((r.reading - prev.reading).toFixed(4)) : null;
+      const cost = usage !== null ? parseFloat((usage * meter.ratePerUnit + meter.baseCharge).toFixed(2)) : null;
+      return { ...r, usage, cost };
+    });
+    res.json({ meter, readings: readingsWithUsage });
+  }));
+
+  app.post('/api/utility/meters/:id/readings', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const meter = await db.get<any>('SELECT * FROM utility_meters WHERE meterId = ? AND userId = ?', [Number(req.params.id), userId]);
+    if (!meter) throw new Error('METER_NOT_FOUND');
+    const reading = Number(req.body.reading);
+    if (Number.isNaN(reading)) throw new Error('READING_REQUIRED');
+    const readDate = String(req.body.readDate || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(readDate)) throw new Error('READ_DATE_REQUIRED');
+    // Check reading is not less than previous reading
+    const latest = await db.get<any>(
+      'SELECT * FROM utility_readings WHERE meterId = ? ORDER BY readDate DESC LIMIT 1',
+      [meter.meterId]
+    );
+    if (latest && reading < latest.reading) throw new Error('READING_MUST_NOT_DECREASE');
+    const result = await db.run(
+      `INSERT INTO utility_readings (meterId, reading, readDate, note) VALUES (?, ?, ?, ?)`,
+      [meter.meterId, reading, readDate, String(req.body.note || '')]
+    );
+    const newReading = await db.get<any>('SELECT * FROM utility_readings WHERE readingId = ?', [result.lastID]);
+    const usage = latest ? parseFloat((reading - latest.reading).toFixed(4)) : null;
+    const cost = usage !== null ? parseFloat((usage * meter.ratePerUnit + meter.baseCharge).toFixed(2)) : null;
+    res.json({ ...newReading, usage, cost, prevReading: latest || null });
+  }));
+
+  app.delete('/api/utility/readings/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    // Verify ownership via join
+    const reading = await db.get<any>(
+      `SELECT r.* FROM utility_readings r
+       INNER JOIN utility_meters m ON r.meterId = m.meterId
+       WHERE r.readingId = ? AND m.userId = ?`,
+      [Number(req.params.id), userId]
+    );
+    if (!reading) throw new Error('READING_NOT_FOUND');
+    await db.run('DELETE FROM utility_readings WHERE readingId = ?', [reading.readingId]);
+    res.json({ ok: true });
+  }));
+
+  // Convert a reading period to a transaction
+  app.post('/api/utility/readings/:id/to-transaction', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const reading = await db.get<any>(
+      `SELECT r.*, m.ratePerUnit, m.baseCharge, m.name as meterName, m.unit
+       FROM utility_readings r
+       INNER JOIN utility_meters m ON r.meterId = m.meterId
+       WHERE r.readingId = ? AND m.userId = ?`,
+      [Number(req.params.id), userId]
+    );
+    if (!reading) throw new Error('READING_NOT_FOUND');
+    const prev = await db.get<any>(
+      'SELECT * FROM utility_readings WHERE meterId = ? AND readDate < ? ORDER BY readDate DESC LIMIT 1',
+      [reading.meterId, reading.readDate]
+    );
+    if (!prev) throw new Error('NO_PREVIOUS_READING');
+    const usage = parseFloat((reading.reading - prev.reading).toFixed(4));
+    const cost = parseFloat((usage * reading.ratePerUnit + reading.baseCharge).toFixed(2));
+    if (cost <= 0) throw new Error('INVALID_COST');
+
+    const ledgerId = Number(req.body.ledgerId);
+    const paymentMethod = String(req.body.paymentMethod || '現金');
+    const ledgers = await ledgerModule.getUserLedgers(userId);
+    if (!ledgers.find((l) => l.ledgerId === ledgerId)) throw new Error('LEDGER_NOT_FOUND');
+
+    const description = `${reading.meterName} ${prev.readDate}～${reading.readDate} 用量 ${usage}${reading.unit}`;
+    const transaction = await transactionModule.createTransaction(
+      ledgerId, 'expense' as TransactionType, cost,
+      '住家', reading.meterName, paymentMethod, description
+    );
+    res.json({ transaction, usage, cost, description });
+  }));
+
   const publicPath = path.resolve(process.cwd(), 'app/src/web/public');
   app.use(express.static(publicPath));
   app.get(/.*/, (_req, res) => res.sendFile(path.join(publicPath, 'index.html')));

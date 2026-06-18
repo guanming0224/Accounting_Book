@@ -271,6 +271,38 @@ export class Database {
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_reminders_user ON bill_reminders(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_splits_user ON split_bills(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_templates_user ON transaction_templates(userId)`);
+        // Utility meters (water, electricity, gas)
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS utility_meters (
+            meterId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'electricity',
+            unit TEXT NOT NULL DEFAULT '度',
+            ratePerUnit REAL NOT NULL DEFAULT 0,
+            baseCharge REAL DEFAULT 0,
+            note TEXT DEFAULT '',
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+
+        // Utility meter readings
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS utility_readings (
+            readingId INTEGER PRIMARY KEY AUTOINCREMENT,
+            meterId INTEGER NOT NULL,
+            reading REAL NOT NULL,
+            readDate TEXT NOT NULL,
+            note TEXT DEFAULT '',
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (meterId) REFERENCES utility_meters(meterId) ON DELETE CASCADE
+          )
+        `);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_utility_meters_user ON utility_meters(userId)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_utility_readings_meter ON utility_readings(meterId, readDate)`);
+
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_subcategories_category ON user_subcategories(categoryId)`, (err) => {
           if (err) reject(err);
           else resolve();
