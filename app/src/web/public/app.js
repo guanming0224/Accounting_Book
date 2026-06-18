@@ -10,6 +10,22 @@ const state = {
   budgetMonth: new Date().getMonth() + 1,
 };
 
+// ── Auth token ────────────────────────────────────────────────────────────
+let authToken = localStorage.getItem('authToken') || '';
+
+async function apiFetch(url, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (authToken && authToken !== 'no-auth') headers['Authorization'] = `Bearer ${authToken}`;
+  const resp = await fetch(url, { ...options, headers });
+  if (resp.status === 401) {
+    authToken = '';
+    localStorage.removeItem('authToken');
+    showAuthOverlay();
+    throw new Error('UNAUTHORIZED');
+  }
+  return resp;
+}
+
 // ── API helper ────────────────────────────────────────────────────────────
 const api = async (path, options = {}) => {
   const url = new URL(path, window.location.origin);
@@ -92,6 +108,7 @@ async function loadDashboard() {
   renderExpenseCategoryChart(dashboard.expenseCategories || []);
   renderLedgerExpenseChart(dashboard.ledgerStats || []);
   renderDashboardAlerts(dashboard.alerts);
+  loadInsights();
   document.querySelector('#dashboard-ledgers').innerHTML =
     state.ledgers
       .map(
@@ -288,6 +305,7 @@ function renderTransactionRow(t) {
   const tagsHtml = tags.map((tag) => `<span class="tag" style="padding:2px 6px;font-size:11px;">${escapeHtml(tag.trim())}</span>`).join('');
   return `
     <tr>
+      <td><input type="checkbox" class="tx-row-checkbox" data-tx-id="${t.transactionId}"></td>
       <td>${escapeHtml(String(t.createdAt || ''))}</td>
       <td>${t.type === 'income' ? '進帳' : '支出'}</td>
       <td>${formatMoney(t.amount)}</td>
@@ -772,6 +790,10 @@ function renderSettings() {
   renderCategorySettings('expense', state.settings.expenseCategories, '#expense-settings');
   renderCategorySettings('income', state.settings.incomeCategories, '#income-settings');
   renderBudgetCategorySelect();
+  loadPinStatus();
+  initNotifications();
+  loadExchangeRates();
+  loadDashboardConfig();
 }
 
 function renderBudgetCategorySelect() {
@@ -830,6 +852,368 @@ function renderCategorySettings(type, categories, selector) {
     )
     .join('');
 }
+
+// ── Auth overlay ──────────────────────────────────────────────────────────
+async function checkAuth() {
+  try {
+    const resp = await fetch('/api/auth/status');
+    const data = await resp.json();
+    if (!data.pinEnabled) {
+      authToken = 'no-auth';
+      return true;
+    }
+    if (!authToken) { showAuthOverlay(); return false; }
+    return true;
+  } catch { return true; }
+}
+
+function showAuthOverlay() {
+  const overlay = document.getElementById('auth-overlay');
+  if (overlay) { overlay.hidden = false; document.getElementById('pin-input')?.focus(); }
+}
+
+function hideAuthOverlay() {
+  const overlay = document.getElementById('auth-overlay');
+  if (overlay) overlay.hidden = true;
+}
+
+document.getElementById('auth-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pin = document.getElementById('pin-input').value;
+  const errEl = document.getElementById('auth-error');
+  try {
+    const resp = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin })
+    });
+    const data = await resp.json();
+    if (data.token) {
+      authToken = data.token;
+      localStorage.setItem('authToken', authToken);
+      hideAuthOverlay();
+      if (errEl) errEl.hidden = true;
+    } else {
+      if (errEl) errEl.hidden = false;
+    }
+  } catch {
+    if (errEl) errEl.hidden = false;
+  }
+});
+
+// ── Templates ─────────────────────────────────────────────────────────────
+async function loadTemplates() {
+  const list = document.getElementById('templates-list');
+  if (!list) return;
+  try {
+    const resp = await apiFetch('/api/templates');
+    const templates = await resp.json();
+    if (!templates.length) { list.innerHTML = '<div class="empty-state">尚無範本，點擊「+ 新增範本」建立</div>'; return; }
+    list.innerHTML = templates.map(t => `
+      <div class="template-card">
+        <div class="template-name">${escapeHtml(t.name)}</div>
+        <div class="template-meta">${t.type === 'expense' ? '支出' : '進帳'} · ${escapeHtml(t.category || '-')} · ${escapeHtml(t.paymentMethod || '-')} · ${t.amount > 0 ? '$' + t.amount : '自填金額'}</div>
+        <div class="template-actions">
+          <button class="secondary small" data-template-use="${t.templateId}" data-template='${escapeHtml(JSON.stringify(t))}'>使用</button>
+          <button class="danger small" data-template-delete="${t.templateId}">刪除</button>
+        </div>
+      </div>
+    `).join('');
+  } catch { list.innerHTML = '<div class="empty-state">載入失敗</div>'; }
+}
+
+function initTemplateForm() {
+  const form = document.getElementById('template-form');
+  const tplLedger = document.getElementById('tpl-ledger');
+  const tplCategory = document.getElementById('tpl-category');
+  const tplSubcategory = document.getElementById('tpl-subcategory');
+  const tplPayment = document.getElementById('tpl-payment');
+  if (!form) return;
+
+  // Populate ledgers
+  if (tplLedger) {
+    tplLedger.innerHTML = state.ledgers.map(l => `<option value="${l.ledgerId}">${escapeHtml(l.name)}</option>`).join('');
+  }
+  // Populate categories based on type
+  function populateTplCats() {
+    const type = form.querySelector('[name="type"]').value;
+    const cats = type === 'expense'
+      ? (state.settings?.expenseCategories || [])
+      : (state.settings?.incomeCategories || []);
+    if (tplCategory) {
+      tplCategory.innerHTML = cats.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+    }
+    populateTplSubcats(cats[0]);
+  }
+  function populateTplSubcats(cat) {
+    if (!cat || !tplSubcategory) return;
+    const sub = cat.subcategories || [];
+    tplSubcategory.innerHTML = sub.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+  }
+  form.querySelector('[name="type"]')?.addEventListener('change', populateTplCats);
+  tplCategory?.addEventListener('change', () => {
+    const type = form.querySelector('[name="type"]').value;
+    const cats = type === 'expense'
+      ? (state.settings?.expenseCategories || [])
+      : (state.settings?.incomeCategories || []);
+    const selected = cats.find(c => c.name === tplCategory.value);
+    populateTplSubcats(selected);
+  });
+  if (tplPayment) {
+    tplPayment.innerHTML = (state.settings?.paymentMethods || []).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+  }
+  populateTplCats();
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(form));
+    try {
+      await apiFetch('/api/templates', { method: 'POST', body: JSON.stringify(data) });
+      document.getElementById('template-create-form').hidden = true;
+      form.reset();
+      await loadTemplates();
+    } catch (err) { alert('新增失敗：' + err.message); }
+  });
+}
+
+// ── Batch operations ──────────────────────────────────────────────────────
+const selectedTxIds = new Set();
+
+function updateBatchBar() {
+  const bar = document.getElementById('batch-action-bar');
+  const countEl = document.getElementById('batch-count');
+  if (!bar) return;
+  if (selectedTxIds.size === 0) { bar.hidden = true; return; }
+  bar.hidden = false;
+  if (countEl) countEl.textContent = `${selectedTxIds.size} 筆已選`;
+  const moveSelect = document.getElementById('batch-move-ledger');
+  if (moveSelect && !moveSelect.options.length) {
+    moveSelect.innerHTML = state.ledgers.map(l => `<option value="${l.ledgerId}">${escapeHtml(l.name)}</option>`).join('');
+  }
+}
+
+document.getElementById('select-all-tx')?.addEventListener('change', (e) => {
+  const checked = e.target.checked;
+  document.querySelectorAll('.tx-row-checkbox').forEach(cb => {
+    cb.checked = checked;
+    const id = Number(cb.dataset.txId);
+    if (checked) selectedTxIds.add(id); else selectedTxIds.delete(id);
+  });
+  updateBatchBar();
+});
+
+document.getElementById('batch-clear-btn')?.addEventListener('click', () => {
+  selectedTxIds.clear();
+  document.querySelectorAll('.tx-row-checkbox').forEach(cb => { cb.checked = false; });
+  const selAll = document.getElementById('select-all-tx');
+  if (selAll) selAll.checked = false;
+  updateBatchBar();
+});
+
+document.getElementById('batch-delete-btn')?.addEventListener('click', async () => {
+  if (!selectedTxIds.size) return;
+  if (!confirm(`確定刪除 ${selectedTxIds.size} 筆交易？`)) return;
+  try {
+    await apiFetch('/api/transactions/batch-delete', {
+      method: 'POST', body: JSON.stringify({ ids: [...selectedTxIds] })
+    });
+    selectedTxIds.clear();
+    updateBatchBar();
+    refreshCurrentView();
+  } catch (err) { alert('刪除失敗：' + err.message); }
+});
+
+document.getElementById('batch-move-btn')?.addEventListener('click', async () => {
+  if (!selectedTxIds.size) return;
+  const ledgerId = document.getElementById('batch-move-ledger').value;
+  try {
+    await apiFetch('/api/transactions/batch-move', {
+      method: 'POST', body: JSON.stringify({ ids: [...selectedTxIds], ledgerId })
+    });
+    selectedTxIds.clear();
+    updateBatchBar();
+    refreshCurrentView();
+  } catch (err) { alert('移動失敗：' + err.message); }
+});
+
+// ── Financial insights ────────────────────────────────────────────────────
+async function loadInsights() {
+  const panel = document.getElementById('insights-panel');
+  const list = document.getElementById('insights-list');
+  if (!panel || !list) return;
+
+  const dashConfig = JSON.parse(localStorage.getItem('dashboardConfig') || '{}');
+  if (dashConfig.showInsights === false) { panel.hidden = true; return; }
+  panel.hidden = false;
+
+  try {
+    const resp = await apiFetch('/api/insights');
+    const insights = await resp.json();
+    list.innerHTML = insights.map(ins => `
+      <div class="insight-card insight-${escapeHtml(ins.severity)}">
+        <div class="insight-title">${escapeHtml(ins.title)}</div>
+        <div class="insight-msg">${escapeHtml(ins.message)}</div>
+      </div>
+    `).join('');
+  } catch { list.innerHTML = '<div class="text-muted">洞察載入失敗</div>'; }
+}
+
+// ── Push notifications ────────────────────────────────────────────────────
+async function initNotifications() {
+  const statusEl = document.getElementById('notification-status');
+  const btn = document.getElementById('enable-notifications-btn');
+  if (!statusEl || !btn) return;
+
+  if (!('Notification' in window)) {
+    statusEl.textContent = '此瀏覽器不支援通知';
+    btn.hidden = true;
+    return;
+  }
+  const perm = Notification.permission;
+  if (perm === 'granted') {
+    statusEl.textContent = '✓ 通知已啟用';
+    btn.textContent = '測試通知';
+    btn.onclick = () => new Notification('帳本提醒', { body: '通知功能正常運作！' });
+  } else if (perm === 'denied') {
+    statusEl.textContent = '通知已被封鎖，請至瀏覽器設定啟用';
+    btn.hidden = true;
+  } else {
+    statusEl.textContent = '尚未啟用推播通知';
+    btn.onclick = async () => {
+      const result = await Notification.requestPermission();
+      if (result === 'granted') {
+        statusEl.textContent = '✓ 通知已啟用';
+        btn.textContent = '測試通知';
+        btn.onclick = () => new Notification('帳本提醒', { body: '通知功能正常運作！' });
+        scheduleNotifications();
+      } else {
+        statusEl.textContent = '通知請求被拒絕';
+      }
+    };
+  }
+}
+
+async function scheduleNotifications() {
+  if (Notification.permission !== 'granted') return;
+  try {
+    const resp = await apiFetch('/api/dashboard');
+    const data = await resp.json();
+    const alerts = data.alerts || {};
+    for (const bill of (alerts.upcomingBills || [])) {
+      if (bill.daysUntil === 0) {
+        new Notification(`今日帳單提醒：${bill.name}`, { body: `金額 $${bill.amount}，今天到期` });
+      } else if (bill.daysUntil === 1) {
+        new Notification(`明日帳單提醒：${bill.name}`, { body: `金額 $${bill.amount}，明天到期` });
+      }
+    }
+    for (const rec of (alerts.overdueRecurring || [])) {
+      new Notification(`定期交易提醒：${rec.description || rec.category}`, { body: `$${rec.amount} 已逾期，請記入` });
+    }
+  } catch {}
+}
+
+// ── Backup / restore ──────────────────────────────────────────────────────
+document.getElementById('backup-btn')?.addEventListener('click', async () => {
+  try {
+    const resp = await apiFetch('/api/backup');
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `accounting-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) { alert('備份失敗：' + err.message); }
+});
+
+document.getElementById('restore-input')?.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const resultEl = document.getElementById('restore-result');
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!confirm(`確定要還原備份？這將覆蓋目前所有資料！`)) return;
+    const resp = await apiFetch('/api/restore', { method: 'POST', body: JSON.stringify(data) });
+    const result = await resp.json();
+    if (resultEl) resultEl.textContent = `✓ 還原成功，共 ${result.restoredTransactions} 筆交易`;
+    setTimeout(() => location.reload(), 2000);
+  } catch (err) {
+    if (resultEl) resultEl.textContent = `✗ 還原失敗：${err.message}`;
+  }
+  e.target.value = '';
+});
+
+// ── Exchange rates ────────────────────────────────────────────────────────
+async function loadExchangeRates() {
+  const panel = document.getElementById('exchange-rates-panel');
+  if (!panel) return;
+  try {
+    const resp = await apiFetch('/api/exchange-rates');
+    const data = await resp.json();
+    const rates = data.rates || {};
+    const display = ['USD', 'JPY', 'EUR', 'CNY', 'HKD'];
+    panel.innerHTML = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">更新日期：${escapeHtml(data.date || '')}</div>` +
+      display.filter(k => rates[k]).map(k =>
+        `<div class="rate-row"><span class="rate-currency">${k}</span><span class="rate-value">1 TWD = ${(1/rates[k]).toFixed(4)} ${k} &nbsp;|&nbsp; 1 ${k} = ${rates[k].toFixed(4)} TWD</span></div>`
+      ).join('');
+  } catch { panel.textContent = '匯率載入失敗（需要網路連線）'; }
+}
+
+// ── Dashboard customization ───────────────────────────────────────────────
+const DASHBOARD_CARDS = [
+  { key: 'showAlerts', label: '近期提醒' },
+  { key: 'showInsights', label: '財務洞察' },
+  { key: 'showCharts', label: '圖表統計' },
+  { key: 'showLedgers', label: '帳本明細' },
+];
+
+function loadDashboardConfig() {
+  const container = document.getElementById('dashboard-cards-config');
+  if (!container) return;
+  const config = JSON.parse(localStorage.getItem('dashboardConfig') || '{}');
+  container.innerHTML = DASHBOARD_CARDS.map(card => `
+    <label class="toggle-row">
+      <input type="checkbox" data-dash-card="${card.key}" ${config[card.key] !== false ? 'checked' : ''}>
+      <span>${escapeHtml(card.label)}</span>
+    </label>
+  `).join('');
+  container.querySelectorAll('[data-dash-card]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const cfg = JSON.parse(localStorage.getItem('dashboardConfig') || '{}');
+      cfg[cb.dataset.dashCard] = cb.checked;
+      localStorage.setItem('dashboardConfig', JSON.stringify(cfg));
+    });
+  });
+}
+
+// ── PIN settings UI ───────────────────────────────────────────────────────
+async function loadPinStatus() {
+  const statusEl = document.getElementById('pin-status');
+  if (!statusEl) return;
+  try {
+    const resp = await fetch('/api/auth/status');
+    const data = await resp.json();
+    statusEl.textContent = data.pinEnabled ? '✓ PIN 已設定' : '未設定 PIN（所有人可存取）';
+  } catch { statusEl.textContent = '狀態載入失敗'; }
+}
+
+document.getElementById('set-pin-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pin = document.getElementById('new-pin-input').value.trim();
+  try {
+    await apiFetch('/api/auth/set-pin', {
+      method: 'POST', body: JSON.stringify({ pin })
+    });
+    if (!pin) {
+      alert('PIN 已清除，應用程式將不再需要 PIN 碼');
+      authToken = 'no-auth';
+    } else {
+      alert('PIN 已設定！下次開啟時需要輸入 PIN 碼');
+    }
+    loadPinStatus();
+    document.getElementById('new-pin-input').value = '';
+  } catch (err) { alert('設定失敗：' + err.message); }
+});
 
 // ── Modal ─────────────────────────────────────────────────────────────────
 function openTxModal() {
@@ -914,13 +1298,18 @@ function setView(view) {
 
   // Initialize recurring form when navigating to it
   if (view === 'recurring') initRecurringForm();
+  // Load templates when navigating to transactions
+  if (view === 'transactions') {
+    loadTemplates();
+    initTemplateForm();
+  }
 }
 
 async function refreshCurrentView() {
   await loadLedgers();
   if (state.currentView === 'dashboard') await loadDashboard();
   if (state.currentView === 'settings') await loadSettings();
-  if (state.currentView === 'transactions') await loadTransactions();
+  if (state.currentView === 'transactions') { await loadTransactions(); await loadTemplates(); }
   if (state.currentView === 'budget') await loadBudgets();
   if (state.currentView === 'reports') await loadReports();
   if (state.currentView === 'accounts') await loadAccounts();
@@ -1122,6 +1511,51 @@ document.addEventListener('click', async (event) => {
         await api(`/api/settings/subcategory?type=${type}&categoryName=${encodeURIComponent(categoryName)}&name=${encodeURIComponent(name)}`, { method: 'DELETE' });
         await loadSettings();
       }
+    } else if (target.id === 'show-template-create-btn') {
+      const createForm = document.getElementById('template-create-form');
+      if (createForm) createForm.hidden = !createForm.hidden;
+      initTemplateForm();
+      return;
+    } else if (target.id === 'template-form-cancel') {
+      const createForm = document.getElementById('template-create-form');
+      if (createForm) createForm.hidden = true;
+      return;
+    } else if (target.dataset.templateDelete) {
+      if (!confirm('刪除此範本？')) return;
+      await apiFetch(`/api/templates/${target.dataset.templateDelete}`, { method: 'DELETE' });
+      loadTemplates();
+      return;
+    } else if (target.dataset.templateUse) {
+      const t = JSON.parse(target.dataset.template || '{}');
+      openTxModal();
+      setTimeout(() => {
+        const modalType = document.querySelector('#tx-modal-form .type-btn[data-type="' + (t.type || 'expense') + '"]');
+        if (modalType) { modalType.click(); }
+        const modalLedger = document.getElementById('modal-ledger');
+        if (modalLedger) modalLedger.value = t.ledgerId;
+        const modalAmount = document.getElementById('modal-amount');
+        if (modalAmount && t.amount) modalAmount.value = t.amount;
+        const modalCurrency = document.getElementById('modal-currency');
+        if (modalCurrency) modalCurrency.value = t.currency || 'TWD';
+        const modalDesc = document.querySelector('#tx-modal-form [name="description"]');
+        if (modalDesc) modalDesc.value = t.description || '';
+        setTimeout(() => {
+          const modalCat = document.getElementById('modal-category');
+          if (modalCat) { modalCat.value = t.category; modalCat.dispatchEvent(new Event('change')); }
+          setTimeout(() => {
+            const modalSub = document.getElementById('modal-subcategory');
+            if (modalSub) modalSub.value = t.subcategory;
+            const modalPay = document.getElementById('modal-payment');
+            if (modalPay) modalPay.value = t.paymentMethod;
+          }, 50);
+        }, 50);
+      }, 50);
+      return;
+    } else if (target.classList.contains('tx-row-checkbox')) {
+      const id = Number(target.dataset.txId);
+      if (target.checked) selectedTxIds.add(id); else selectedTxIds.delete(id);
+      updateBatchBar();
+      return;
     } else {
       return;
     }
@@ -1464,6 +1898,8 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
 
 // ── Init ──────────────────────────────────────────────────────────────────
 (async function init() {
+  await checkAuth();
+
   applyTheme(localStorage.getItem('theme') === 'dark');
 
   const filter = document.querySelector('#transaction-filter');
@@ -1473,6 +1909,10 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
+  if (Notification.permission === 'granted') {
+    scheduleNotifications();
   }
 
   try {

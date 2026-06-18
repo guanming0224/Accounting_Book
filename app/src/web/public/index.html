@@ -59,6 +59,10 @@
           <h2>近期提醒</h2>
           <div id="dashboard-alerts-list" class="list"></div>
         </section>
+        <section id="insights-panel" class="panel" hidden>
+          <h2>💡 財務洞察</h2>
+          <div id="insights-list"></div>
+        </section>
         <section class="panel">
           <h2>帳本概況</h2>
           <div id="dashboard-ledgers" class="list"></div>
@@ -97,6 +101,7 @@
             <table>
               <thead>
                 <tr>
+                  <th style="width:32px"><input type="checkbox" id="select-all-tx" title="全選"></th>
                   <th>時間</th>
                   <th>類型</th>
                   <th>金額</th>
@@ -156,6 +161,48 @@
             <button type="submit">匯入</button>
           </form>
           <div id="import-result" class="summary" style="margin-top:10px;"></div>
+        </section>
+
+        <!-- Transaction templates -->
+        <section class="panel" id="templates-panel">
+          <div class="section-header">
+            <h2>交易範本</h2>
+            <button id="show-template-create-btn" class="secondary">+ 新增範本</button>
+          </div>
+          <div id="template-create-form" class="form-card" hidden>
+            <form id="template-form">
+              <div class="form-row">
+                <input type="text" name="name" placeholder="範本名稱" required style="flex:2" />
+                <select name="type">
+                  <option value="expense">支出</option>
+                  <option value="income">進帳</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <select name="ledgerId" id="tpl-ledger"></select>
+                <select name="category" id="tpl-category"></select>
+                <select name="subcategory" id="tpl-subcategory"></select>
+              </div>
+              <div class="form-row">
+                <select name="paymentMethod" id="tpl-payment"></select>
+                <input type="number" name="amount" placeholder="預設金額（選填）" min="0" />
+                <select name="currency">
+                  <option value="TWD">TWD</option>
+                  <option value="USD">USD</option>
+                  <option value="JPY">JPY</option>
+                  <option value="EUR">EUR</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <input type="text" name="description" placeholder="備註（選填）" style="flex:1" />
+              </div>
+              <div class="form-row">
+                <button type="submit" class="primary">儲存範本</button>
+                <button type="button" id="template-form-cancel" class="secondary">取消</button>
+              </div>
+            </form>
+          </div>
+          <div id="templates-list" class="templates-grid"></div>
         </section>
       </section>
 
@@ -436,6 +483,49 @@
           </form>
           <div id="income-settings" class="category-list"></div>
         </section>
+
+        <!-- Security / PIN -->
+        <section class="panel">
+          <h2>安全設定 (PIN 鎖)</h2>
+          <div id="pin-status" class="text-muted" style="margin-bottom:10px;font-size:13px">載入中...</div>
+          <form id="set-pin-form" class="inline-form">
+            <input type="password" id="new-pin-input" placeholder="新 PIN（4-8位，留空清除）" maxlength="8" style="width:200px" />
+            <button type="submit" class="secondary">設定/清除 PIN</button>
+          </form>
+        </section>
+
+        <!-- Push Notifications -->
+        <section class="panel">
+          <h2>推播通知</h2>
+          <div id="notification-status" class="text-muted" style="font-size:13px;margin-bottom:10px">載入中...</div>
+          <button id="enable-notifications-btn" class="secondary">啟用通知</button>
+        </section>
+
+        <!-- Backup & Restore -->
+        <section class="panel">
+          <h2>備份與還原</h2>
+          <p class="text-muted" style="font-size:13px;margin-bottom:12px">匯出 JSON 備份可用於還原資料</p>
+          <div class="inline-form">
+            <button id="backup-btn" class="secondary">匯出備份 (JSON)</button>
+            <label class="btn secondary" style="cursor:pointer">
+              還原備份
+              <input type="file" id="restore-input" accept=".json" hidden />
+            </label>
+          </div>
+          <div id="restore-result" style="margin-top:8px;font-size:13px"></div>
+        </section>
+
+        <!-- Dashboard Customization -->
+        <section class="panel">
+          <h2>儀表板自訂</h2>
+          <div id="dashboard-cards-config" class="list" style="display:flex;flex-direction:column;gap:8px"></div>
+        </section>
+
+        <!-- Exchange Rates -->
+        <section class="panel">
+          <h2>匯率資訊 (以 TWD 為基準)</h2>
+          <div id="exchange-rates-panel" class="text-muted" style="font-size:13px">載入中...</div>
+        </section>
       </section>
     </main>
 
@@ -499,6 +589,30 @@
     </div>
 
     <button id="add-tx-fab" class="fab" title="新增交易">＋</button>
+
+    <!-- Auth lock screen -->
+    <div id="auth-overlay" class="auth-overlay" hidden>
+      <div class="auth-box">
+        <div class="auth-logo">帳本</div>
+        <h2>請輸入 PIN 碼解鎖</h2>
+        <form id="auth-form">
+          <input type="password" id="pin-input" placeholder="PIN 碼 (4-8位)" maxlength="8" autocomplete="off" inputmode="numeric" />
+          <button type="submit" class="primary" style="width:100%;margin-top:12px">解鎖</button>
+        </form>
+        <div id="auth-error" class="auth-error" hidden>PIN 碼錯誤，請再試一次</div>
+      </div>
+    </div>
+
+    <!-- Batch action bar -->
+    <div id="batch-action-bar" class="batch-bar" hidden>
+      <span id="batch-count">0 筆已選</span>
+      <div class="batch-actions">
+        <select id="batch-move-ledger" class="select-inline"></select>
+        <button id="batch-move-btn" class="secondary">移至帳本</button>
+        <button id="batch-delete-btn" class="danger">刪除所選</button>
+        <button id="batch-clear-btn" class="secondary">取消</button>
+      </div>
+    </div>
 
     <script src="/app.js"></script>
   </body>
