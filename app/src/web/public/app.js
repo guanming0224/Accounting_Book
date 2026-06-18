@@ -4,6 +4,9 @@ const state = {
   archivedLedgers: [],
   settings: null,
   currentView: 'dashboard',
+  modalType: 'expense',
+  budgetYear: new Date().getFullYear(),
+  budgetMonth: new Date().getMonth() + 1,
 };
 
 const api = async (path, options = {}) => {
@@ -34,9 +37,7 @@ function showStatus(message, isError = false) {
   status.textContent = message;
   status.classList.toggle('error', isError);
   status.hidden = false;
-  setTimeout(() => {
-    status.hidden = true;
-  }, 3500);
+  setTimeout(() => { status.hidden = true; }, 3500);
 }
 
 async function loadContext() {
@@ -244,6 +245,13 @@ function renderSettings() {
   renderPaymentSettings();
   renderCategorySettings('expense', state.settings.expenseCategories, '#expense-settings');
   renderCategorySettings('income', state.settings.incomeCategories, '#income-settings');
+  renderBudgetCategorySelect();
+}
+
+function renderBudgetCategorySelect() {
+  const cats = state.settings?.expenseCategories || [];
+  document.querySelector('#budget-category-select').innerHTML =
+    cats.map((c) => `<option value="${escapeAttr(c.name)}">${escapeHtml(c.name)}</option>`).join('');
 }
 
 function renderPaymentSettings() {
@@ -297,6 +305,169 @@ function renderCategorySettings(type, categories, selector) {
     .join('');
 }
 
+// ── 預算 ──────────────────────────────────────────────────────────────────
+
+function updateBudgetMonthLabel() {
+  document.querySelector('#budget-month-label').textContent =
+    `${state.budgetYear} 年 ${state.budgetMonth} 月`;
+}
+
+async function loadBudgets() {
+  updateBudgetMonthLabel();
+  renderBudgetCategorySelect();
+  const budgets = await api(`/api/budgets?year=${state.budgetYear}&month=${state.budgetMonth}`);
+  renderBudgets(budgets);
+}
+
+function renderBudgets(budgets) {
+  const list = document.querySelector('#budget-list');
+  if (!budgets.length) {
+    list.innerHTML = '<div class="row"><div class="row-main"><div class="row-meta">本月尚無預算，請使用下方表單新增</div></div></div>';
+    return;
+  }
+  list.innerHTML = budgets
+    .map((b) => {
+      const pct = b.amount > 0 ? Math.min((b.actual / b.amount) * 100, 100) : 0;
+      const over = b.actual > b.amount;
+      return `
+        <div class="budget-row">
+          <div class="budget-info">
+            <div class="budget-name">${escapeHtml(b.category)}</div>
+            <div class="budget-amounts">
+              <span class="${over ? 'text-danger' : ''}">實際 ${formatMoney(b.actual)}</span>
+              <span class="text-muted"> / 預算 ${formatMoney(b.amount)}</span>
+            </div>
+          </div>
+          <div class="budget-progress-wrap">
+            <div class="budget-progress-track">
+              <div class="budget-progress-fill ${over ? 'over' : ''}" style="width:${pct.toFixed(1)}%"></div>
+            </div>
+            <span class="budget-pct ${over ? 'text-danger' : ''}">${pct.toFixed(0)}%</span>
+          </div>
+          <button class="danger" data-budget-delete="${b.budgetId}">刪除</button>
+        </div>`;
+    })
+    .join('');
+}
+
+// ── 趨勢報表 ─────────────────────────────────────────────────────────────
+
+async function loadReports() {
+  const months = Number(document.querySelector('#trend-months')?.value || 6);
+  const data = await api(`/api/reports/trend?months=${months}`);
+  renderReportsMetrics(data);
+  renderTrendChart(data);
+}
+
+function renderReportsMetrics(data) {
+  const expenses = data.map((d) => d.totalExpense);
+  const incomes = data.map((d) => d.totalIncome);
+  const avg = (arr) => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
+  const max = (arr) => arr.length ? Math.max(...arr) : 0;
+  document.querySelector('#rpt-avg-expense').textContent = formatMoney(avg(expenses));
+  document.querySelector('#rpt-max-expense').textContent = formatMoney(max(expenses));
+  document.querySelector('#rpt-avg-income').textContent = formatMoney(avg(incomes));
+  document.querySelector('#rpt-max-income').textContent = formatMoney(max(incomes));
+}
+
+function renderTrendChart(data) {
+  const maxVal = Math.max(...data.flatMap((d) => [d.totalIncome, d.totalExpense]), 1);
+  document.querySelector('#trend-chart').innerHTML = data
+    .map((d) => {
+      const incH = ((d.totalIncome / maxVal) * 100).toFixed(1);
+      const expH = ((d.totalExpense / maxVal) * 100).toFixed(1);
+      return `
+        <div class="trend-col">
+          <div class="trend-bars">
+            <div class="trend-bar income" style="height:${incH}%" title="進帳 ${formatMoney(d.totalIncome)}"></div>
+            <div class="trend-bar expense" style="height:${expH}%" title="支出 ${formatMoney(d.totalExpense)}"></div>
+          </div>
+          <div class="trend-month-label">${escapeHtml(d.label)}</div>
+        </div>`;
+    })
+    .join('');
+}
+
+// ── 新增交易 Modal ────────────────────────────────────────────────────────
+
+function openTxModal() {
+  if (!state.settings || !state.ledgers.length) {
+    showStatus('資料尚未載入，請稍後再試', true);
+    return;
+  }
+  state.modalType = 'expense';
+
+  const ledgerSel = document.querySelector('#modal-ledger');
+  ledgerSel.innerHTML = state.ledgers
+    .map((l) => `<option value="${l.ledgerId}">${escapeHtml(l.name)}</option>`)
+    .join('');
+
+  const pmSel = document.querySelector('#modal-payment');
+  pmSel.innerHTML = state.settings.paymentMethods
+    .map((p) => `<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`)
+    .join('');
+
+  document.querySelectorAll('.type-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.type === 'expense');
+  });
+
+  updateModalCategories();
+  document.querySelector('#tx-modal-overlay').hidden = false;
+  document.querySelector('#modal-amount').focus();
+}
+
+function closeTxModal() {
+  document.querySelector('#tx-modal-overlay').hidden = true;
+  document.querySelector('#tx-modal-form').reset();
+}
+
+function updateModalCategories() {
+  const cats =
+    state.modalType === 'expense'
+      ? state.settings.expenseCategories
+      : state.settings.incomeCategories;
+  const catSel = document.querySelector('#modal-category');
+  catSel.innerHTML = cats
+    .map((c) => `<option value="${escapeAttr(c.name)}">${escapeHtml(c.name)}</option>`)
+    .join('');
+  updateModalSubcategories();
+}
+
+function updateModalSubcategories() {
+  const cats =
+    state.modalType === 'expense'
+      ? state.settings.expenseCategories
+      : state.settings.incomeCategories;
+  const catSel = document.querySelector('#modal-category');
+  const cat = cats.find((c) => c.name === catSel.value);
+  const subSel = document.querySelector('#modal-subcategory');
+  subSel.innerHTML = (cat?.subcategories || [])
+    .map((s) => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`)
+    .join('');
+}
+
+function exportCsv() {
+  const form = document.querySelector('#transaction-filter');
+  const ledgerId = form.ledgerId.value;
+  const start = form.start.value;
+  const end = form.end.value;
+  if (!ledgerId || !start || !end) {
+    showStatus('請先選擇帳本與日期範圍後再匯出', true);
+    return;
+  }
+  const url = new URL('/api/export/csv', window.location.origin);
+  if (state.userId !== null) url.searchParams.set('userId', state.userId);
+  url.searchParams.set('ledgerId', ledgerId);
+  url.searchParams.set('start', start);
+  url.searchParams.set('end', end);
+  const a = document.createElement('a');
+  a.href = url.toString();
+  a.download = `transactions_${start}_${end}.csv`;
+  a.click();
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────
+
 function setView(view) {
   state.currentView = view;
   document.querySelectorAll('.nav-button').forEach((button) => {
@@ -305,8 +476,15 @@ function setView(view) {
   document.querySelectorAll('.view').forEach((section) => {
     section.classList.toggle('active', section.id === `${view}-view`);
   });
-  const titles = { dashboard: '總覽', ledgers: '帳本', transactions: '交易', settings: '設定' };
-  document.querySelector('#page-title').textContent = titles[view];
+  const titles = {
+    dashboard: '總覽',
+    ledgers: '帳本',
+    transactions: '交易',
+    budget: '預算管理',
+    reports: '趨勢報表',
+    settings: '設定',
+  };
+  document.querySelector('#page-title').textContent = titles[view] || view;
 }
 
 async function refreshCurrentView() {
@@ -314,7 +492,11 @@ async function refreshCurrentView() {
   if (state.currentView === 'dashboard') await loadDashboard();
   if (state.currentView === 'settings') await loadSettings();
   if (state.currentView === 'transactions') await loadTransactions();
+  if (state.currentView === 'budget') await loadBudgets();
+  if (state.currentView === 'reports') await loadReports();
 }
+
+// ── Utilities ─────────────────────────────────────────────────────────────
 
 function escapeHtml(value) {
   return String(value)
@@ -335,6 +517,8 @@ function splitPayload(value) {
   );
 }
 
+// ── Event delegation ──────────────────────────────────────────────────────
+
 document.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
@@ -346,8 +530,24 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  // Type toggle in modal
+  const typeBtn = target.closest('.type-btn');
+  if (typeBtn) {
+    state.modalType = typeBtn.dataset.type;
+    document.querySelectorAll('.type-btn').forEach((b) => b.classList.remove('active'));
+    typeBtn.classList.add('active');
+    updateModalCategories();
+    return;
+  }
+
   try {
-    if (target.dataset.ledgerRename) {
+    if (target.id === 'add-tx-fab') {
+      openTxModal();
+    } else if (target.id === 'tx-modal-cancel') {
+      closeTxModal();
+    } else if (target.id === 'export-csv-btn') {
+      exportCsv();
+    } else if (target.dataset.ledgerRename) {
       const ledger = state.ledgers.find((item) => item.ledgerId === Number(target.dataset.ledgerRename));
       const name = prompt('新的帳本名稱', ledger?.name || '');
       if (name) await api(`/api/ledgers/${target.dataset.ledgerRename}/name`, { method: 'PATCH', body: JSON.stringify({ name }) });
@@ -374,6 +574,12 @@ document.addEventListener('click', async (event) => {
       if (confirm('確定要刪除這筆交易？')) {
         await api(`/api/transactions/${target.dataset.txDelete}`, { method: 'DELETE' });
         await loadTransactions();
+      }
+    } else if (target.dataset.budgetDelete) {
+      if (confirm('確定要刪除此預算？')) {
+        await api(`/api/budgets/${target.dataset.budgetDelete}`, { method: 'DELETE' });
+        await loadBudgets();
+        showStatus('已刪除預算');
       }
     } else if (target.dataset.paymentRename) {
       const oldName = target.dataset.paymentRename;
@@ -413,16 +619,60 @@ document.addEventListener('click', async (event) => {
         await api(`/api/settings/subcategory?type=${type}&categoryName=${encodeURIComponent(categoryName)}&name=${encodeURIComponent(name)}`, { method: 'DELETE' });
         await loadSettings();
       }
+    } else {
+      return;
     }
-    showStatus('已更新');
+    if (!['add-tx-fab', 'tx-modal-cancel', 'export-csv-btn'].includes(target.id) &&
+        !target.dataset.budgetDelete && !target.classList.contains('type-btn')) {
+      showStatus('已更新');
+    }
   } catch (err) {
     showStatus(err.message || '操作失敗', true);
   }
 });
 
+// Close modal when clicking overlay background
+document.querySelector('#tx-modal-overlay').addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) closeTxModal();
+});
+
+// Modal category select change
+document.querySelector('#modal-category').addEventListener('change', updateModalSubcategories);
+
+// Modal form submit → create transaction
+document.querySelector('#tx-modal-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const amount = Number(form.amount.value);
+  if (!amount || amount <= 0) { showStatus('金額必須大於 0', true); return; }
+  try {
+    await api('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        ledgerId: Number(form.ledgerId.value),
+        type: state.modalType,
+        amount,
+        category: form.category.value,
+        subcategory: form.subcategory.value,
+        paymentMethod: form.paymentMethod.value,
+        description: form.description.value.trim(),
+      }),
+    });
+    closeTxModal();
+    showStatus('已新增交易');
+    await refreshCurrentView();
+  } catch (err) {
+    showStatus(err.message || '新增失敗', true);
+  }
+});
+
+// Refresh button
 document.querySelector('#refresh-button').addEventListener('click', refreshCurrentView);
+
+// Transaction filter
 document.querySelector('#transaction-filter').addEventListener('submit', loadTransactions);
 
+// Ledger create form
 document.querySelector('#ledger-create-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const name = event.currentTarget.name.value.trim();
@@ -437,6 +687,7 @@ document.querySelector('#ledger-create-form').addEventListener('submit', async (
   }
 });
 
+// Settings create forms
 document.querySelectorAll('.setting-create').forEach((form) => {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -458,6 +709,7 @@ document.querySelectorAll('.setting-create').forEach((form) => {
   });
 });
 
+// Subcategory create forms (delegated)
 document.addEventListener('submit', async (event) => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement) || !form.classList.contains('subcategory-create')) return;
@@ -477,10 +729,52 @@ document.addEventListener('submit', async (event) => {
   }
 });
 
+// Budget month navigation
+document.querySelector('#budget-prev-month').addEventListener('click', async () => {
+  state.budgetMonth--;
+  if (state.budgetMonth === 0) { state.budgetMonth = 12; state.budgetYear--; }
+  await loadBudgets();
+});
+
+document.querySelector('#budget-next-month').addEventListener('click', async () => {
+  state.budgetMonth++;
+  if (state.budgetMonth === 13) { state.budgetMonth = 1; state.budgetYear++; }
+  await loadBudgets();
+});
+
+// Budget add form
+document.querySelector('#budget-add-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const category = form.category.value;
+  const amount = Number(form.amount.value);
+  if (!category) { showStatus('請選擇類別', true); return; }
+  if (!amount || amount <= 0) { showStatus('請輸入有效金額', true); return; }
+  try {
+    await api('/api/budgets', {
+      method: 'POST',
+      body: JSON.stringify({ category, amount, year: state.budgetYear, month: state.budgetMonth }),
+    });
+    form.reset();
+    await loadBudgets();
+    showStatus('預算已設定');
+  } catch (err) {
+    showStatus(err.message || '設定失敗', true);
+  }
+});
+
+// Trend months select
+document.querySelector('#trend-months').addEventListener('change', async () => {
+  try { await loadReports(); } catch (err) { showStatus(err.message || '載入失敗', true); }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────
+
 (async function init() {
   const filter = document.querySelector('#transaction-filter');
   filter.start.value = toDateInput(monthStart);
   filter.end.value = toDateInput(today);
+  updateBudgetMonthLabel();
   try {
     await loadContext();
     await loadLedgers();

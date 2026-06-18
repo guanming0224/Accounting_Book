@@ -67,6 +67,12 @@ function currentMonthRange(): { startDate: string; endDate: string } {
   return { startDate: sqliteDate(start), endDate: sqliteDate(end) };
 }
 
+function monthRangeForYearMonth(year: number, month: number): { startDate: string; endDate: string } {
+  const start = taipeiMidnightUtc(year, month, 1);
+  const end = month === 12 ? taipeiMidnightUtc(year + 1, 1, 1) : taipeiMidnightUtc(year, month + 1, 1);
+  return { startDate: sqliteDate(start), endDate: sqliteDate(end) };
+}
+
 async function resolveUserId(req: Request): Promise<number> {
   const rawUserId = req.query.userId || req.header('x-user-id') || req.body?.userId;
   if (rawUserId !== undefined) {
@@ -309,6 +315,143 @@ async function startWebServer() {
       String(req.query.name || '')
     );
     res.json(await getSettings(userId));
+  }));
+
+  // ── Create transaction from web ──────────────────────────────────────────
+  app.post('/api/transactions', asyncHandler(async (req, res) => {
+    const userId = await resolveUserId(req);
+    const { ledgerId, type, amount, category, subcategory, paymentMethod, description } = req.body;
+    const ledgers = await ledgerModule.getUserLedgers(userId);
+    if (!ledgers.find((l) => l.ledgerId === Number(ledgerId))) throw new Error('LEDGER_NOT_FOUND');
+    const amountNum = Number(amount);
+    if (Number.isNaN(amountNum) || amountNum <= 0) throw new Error('INVALID_AMOUNT');
+    if (!['expense', 'income'].includes(String(type))) throw new Error('INVALID_TYPE');
+    if (!category) throw new Error('CATEGORY_REQUIRED');
+    if (!subcategory) throw new Error('SUBCATEGORY_REQUIRED');
+    if (!paymentMethod) throw new Error('PAYMENT_METHOD_REQUIRED');
+    const transaction = await transactionModule.createTransaction(
+      Number(ledgerId), type as TransactionType, amountNum,
+      String(category), String(subcategory), String(paymentMethod), String(description || '')
+    );
+    res.json(transaction);
+  }));
+
+  // ── Budgets ──────────────────────────────────────────────────────────────
+  app.get('/api/budgets', asyncHandler(async (req, res) => {
+    const userId = await resolveUserId(req);
+    const { year, month } = getTaipeiTodayParts();
+    const y = Number(req.query.year || year);
+    const m = Number(req.query.month || month);
+    const budgets = await db.all<any>(
+      'SELECT * FROM budgets WHERE userId = ? AND year = ? AND month = ? ORDER BY category',
+      [userId, y, m]
+    );
+    const { startDate, endDate } = monthRangeForYearMonth(y, m);
+    const ledgers = await ledgerModule.getUserLedgers(userId);
+    const actualMap = new Map<string, number>();
+    for (const ledger of ledgers) {
+      const summary = await transactionModule.getCategorySummaryByDateRange(ledger.ledgerId, startDate, endDate);
+      for (const item of summary) {
+        if (item.type === 'expense') {
+          actualMap.set(item.category, (actualMap.get(item.category) || 0) + item.total);
+        }
+      }
+    }
+    res.json(budgets.map((b) => ({ ...b, actual: actualMap.get(b.category) || 0 })));
+  }));
+
+  app.post('/api/budgets', asyncHandler(async (req, res) => {
+    const userId = await resolveUserId(req);
+    const { category, amount, year, month } = req.body;
+    if (!category) throw new Error('CATEGORY_REQUIRED');
+    const amountNum = Number(amount);
+    if (Number.isNaN(amountNum) || amountNum < 0) throw new Error('INVALID_AMOUNT');
+    await db.run(
+      `INSERT INTO budgets (userId, category, amount, year, month)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(userId, category, year, month) DO UPDATE SET
+         amount = excluded.amount, updatedAt = CURRENT_TIMESTAMP`,
+      [userId, String(category), amountNum, Number(year), Number(month)]
+    );
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/budgets/:id', asyncHandler(async (req, res) => {
+    const userId = await resolveUserId(req);
+    const result = await db.run(
+      'DELETE FROM budgets WHERE budgetId = ? AND userId = ?',
+      [Number(req.params.id), userId]
+    );
+    if (!result.changes) throw new Error('BUDGET_NOT_FOUND');
+    res.json({ ok: true });
+  }));
+
+  // ── Monthly trend (last N months across all active ledgers) ──────────────
+  app.get('/api/reports/trend', asyncHandler(async (req, res) => {
+    const userId = await resolveUserId(req);
+    const months = Math.min(Math.max(Number(req.query.months || 6), 1), 24);
+    const { year, month } = getTaipeiTodayParts();
+
+    let startYear = year;
+    let startMonth = month - months + 1;
+    while (startMonth <= 0) { startMonth += 12; startYear--; }
+    const startDate = sqliteDate(taipeiMidnightUtc(startYear, startMonth, 1));
+
+    const rows = await db.all<{ yearMonth: string; totalIncome: number; totalExpense: number }>(
+      `SELECT
+         strftime('%Y-%m', datetime(t.createdAt, '+8 hours')) as yearMonth,
+         SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END) as totalIncome,
+         SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END) as totalExpense
+       FROM transactions t
+       INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+       WHERE l.userId = ? AND COALESCE(l.isArchived, 0) = 0 AND t.createdAt >= ?
+       GROUP BY yearMonth
+       ORDER BY yearMonth ASC`,
+      [userId, startDate]
+    );
+    const dataMap = new Map(rows.map((r) => [r.yearMonth, r]));
+
+    const result = [];
+    for (let i = months - 1; i >= 0; i--) {
+      let y = year, m = month - i;
+      while (m <= 0) { m += 12; y--; }
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      const row = dataMap.get(key);
+      result.push({
+        year: y, month: m,
+        label: `${y}/${String(m).padStart(2, '0')}`,
+        totalIncome: row?.totalIncome || 0,
+        totalExpense: row?.totalExpense || 0,
+        balance: (row?.totalIncome || 0) - (row?.totalExpense || 0),
+      });
+    }
+    res.json(result);
+  }));
+
+  // ── CSV export ────────────────────────────────────────────────────────────
+  app.get('/api/export/csv', asyncHandler(async (req, res) => {
+    const ledgerId = Number(req.query.ledgerId);
+    if (Number.isNaN(ledgerId)) throw new Error('LEDGER_ID_REQUIRED');
+    const { startDate, endDate } = parseDateRange(req);
+    const transactions = await transactionModule.getTransactionsByLedgerAndDateRange(
+      ledgerId, startDate, endDate, 10000
+    );
+    const escape = (s: string) => `"${String(s || '').replace(/"/g, '""')}"`;
+    const rows = [
+      ['時間', '類型', '金額', '類別', '子類別', '付款方式', '備註'].join(','),
+      ...transactions.map((t) => [
+        escape(String(t.createdAt)),
+        t.type === 'income' ? '進帳' : '支出',
+        t.amount,
+        escape(t.category),
+        escape(t.subcategory),
+        escape(t.paymentMethod),
+        escape(t.description || ''),
+      ].join(',')),
+    ].join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="transactions.csv"');
+    res.send('﻿' + rows);
   }));
 
   const publicPath = path.resolve(process.cwd(), 'app/src/web/public');

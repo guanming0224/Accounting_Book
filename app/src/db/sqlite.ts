@@ -114,11 +114,28 @@ export class Database {
           )
         `);
 
+        // Monthly category budgets
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS budgets (
+            budgetId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            amount REAL NOT NULL,
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(userId, category, year, month),
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+
         // Create index for faster queries
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_ledger ON transactions(ledgerId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_ledgers_user ON ledgers(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_payment_methods_user ON payment_methods(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_categories_user_type ON user_categories(userId, type)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_budgets_user ON budgets(userId, year, month)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_subcategories_category ON user_subcategories(categoryId)`, (err) => {
           if (err) reject(err);
           else resolve();
