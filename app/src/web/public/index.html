@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#102331" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>Accounting Book</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-top">
+          <strong>Accounting Book</strong>
+          <button id="dark-mode-toggle" class="icon-btn" title="切換深色模式">◑</button>
+        </div>
+        <span id="user-label">Local dashboard</span>
+      </div>
+      <nav>
+        <div class="nav-group-label">記帳</div>
+        <button class="nav-button active" data-view="dashboard">總覽</button>
+        <button class="nav-button" data-view="transactions">交易</button>
+        <button class="nav-button" data-view="accounts">帳戶</button>
+        <button class="nav-button" data-view="ledgers">帳本</button>
+        <div class="nav-group-label">規劃</div>
+        <button class="nav-button" data-view="budget">預算</button>
+        <button class="nav-button" data-view="goals">目標</button>
+        <button class="nav-button" data-view="recurring">定期交易</button>
+        <button class="nav-button" data-view="reminders">帳單提醒</button>
+        <div class="nav-group-label">分析</div>
+        <button class="nav-button" data-view="reports">趨勢報表</button>
+        <div class="nav-group-label">其他</div>
+        <button class="nav-button" data-view="splits">分帳</button>
+        <button class="nav-button" data-view="settings">設定</button>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">總覽</h1>
+          <p id="page-subtitle">本機 SQLite 資料檢視與管理</p>
+        </div>
+        <button id="refresh-button" class="secondary">重新整理</button>
+      </header>
+
+      <section id="status" class="status" hidden></section>
+
+      <!-- ── 總覽 ─────────────────────────────────────────────────────────── -->
+      <section id="dashboard-view" class="view active">
+        <div class="metrics">
+          <div class="metric"><span>本月進帳</span><strong id="metric-income">0</strong></div>
+          <div class="metric"><span>本月支出</span><strong id="metric-expense">0</strong></div>
+          <div class="metric"><span>本月結餘</span><strong id="metric-balance">0</strong></div>
+          <div class="metric"><span>交易筆數</span><strong id="metric-count">0</strong></div>
+        </div>
+        <section id="dashboard-alerts" class="panel" hidden>
+          <h2>近期提醒</h2>
+          <div id="dashboard-alerts-list" class="list"></div>
+        </section>
+        <section id="insights-panel" class="panel" hidden>
+          <h2>💡 財務洞察</h2>
+          <div id="insights-list"></div>
+        </section>
+        <section class="panel">
+          <h2>帳本概況</h2>
+          <div id="dashboard-ledgers" class="list"></div>
+        </section>
+        <div class="chart-grid">
+          <section class="panel">
+            <h2>進帳 - 支出淨額</h2>
+            <div id="income-expense-chart" class="chart-box"></div>
+          </section>
+          <section class="panel">
+            <h2>支出類別分布</h2>
+            <div id="expense-category-chart" class="chart-box"></div>
+          </section>
+        </div>
+        <section class="panel">
+          <h2>各帳本本月支出</h2>
+          <div id="ledger-expense-chart" class="bar-list"></div>
+        </section>
+      </section>
+
+      <!-- ── 交易 ─────────────────────────────────────────────────────────── -->
+      <section id="transactions-view" class="view">
+        <section class="panel">
+          <div class="section-header">
+            <h2>交易查詢</h2>
+            <button id="export-csv-btn" class="secondary">匯出 CSV</button>
+          </div>
+          <form id="transaction-filter" class="toolbar">
+            <select name="ledgerId"></select>
+            <input type="date" name="start" />
+            <input type="date" name="end" />
+            <button type="submit">查詢</button>
+          </form>
+          <div id="transaction-summary" class="summary"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:32px"><input type="checkbox" id="select-all-tx" title="全選"></th>
+                  <th>時間</th>
+                  <th>類型</th>
+                  <th>金額</th>
+                  <th>類別</th>
+                  <th>付款方式</th>
+                  <th>幣別</th>
+                  <th>標籤</th>
+                  <th>備註</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="transactions-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>進階搜尋</h2>
+          <form id="advanced-search-form" class="toolbar" style="flex-wrap:wrap;gap:8px;">
+            <input name="keyword" placeholder="關鍵字" style="width:140px;" />
+            <input name="minAmount" type="number" placeholder="最小金額" style="width:110px;" min="0" step="0.01" />
+            <input name="maxAmount" type="number" placeholder="最大金額" style="width:110px;" min="0" step="0.01" />
+            <select name="type">
+              <option value="">全部類型</option>
+              <option value="expense">支出</option>
+              <option value="income">進帳</option>
+            </select>
+            <input type="date" name="start" />
+            <input type="date" name="end" />
+            <button type="submit">搜尋</button>
+          </form>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>時間</th>
+                  <th>類型</th>
+                  <th>金額</th>
+                  <th>類別</th>
+                  <th>帳本</th>
+                  <th>幣別</th>
+                  <th>標籤</th>
+                  <th>備註</th>
+                </tr>
+              </thead>
+              <tbody id="search-results-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>匯入 CSV</h2>
+          <p class="text-muted" style="margin-bottom:12px;font-size:13px;">CSV 格式：type,amount,category,subcategory,paymentMethod,description（第一列為標題列，將被略過）</p>
+          <form id="import-csv-form" class="toolbar" style="flex-wrap:wrap;">
+            <select id="import-ledger-select" name="ledgerId"></select>
+            <input type="file" name="csvFile" accept=".csv" />
+            <button type="submit">匯入</button>
+          </form>
+          <div id="import-result" class="summary" style="margin-top:10px;"></div>
+        </section>
+
+        <!-- Transaction templates -->
+        <section class="panel" id="templates-panel">
+          <div class="section-header">
+            <h2>交易範本</h2>
+            <button id="show-template-create-btn" class="secondary">+ 新增範本</button>
+          </div>
+          <div id="template-create-form" class="form-card" hidden>
+            <form id="template-form">
+              <div class="form-row">
+                <input type="text" name="name" placeholder="範本名稱" required style="flex:2" />
+                <select name="type">
+                  <option value="expense">支出</option>
+                  <option value="income">進帳</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <select name="ledgerId" id="tpl-ledger"></select>
+                <select name="category" id="tpl-category"></select>
+                <select name="subcategory" id="tpl-subcategory"></select>
+              </div>
+              <div class="form-row">
+                <select name="paymentMethod" id="tpl-payment"></select>
+                <input type="number" name="amount" placeholder="預設金額（選填）" min="0" />
+                <select name="currency">
+                  <option value="TWD">TWD</option>
+                  <option value="USD">USD</option>
+                  <option value="JPY">JPY</option>
+                  <option value="EUR">EUR</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <input type="text" name="description" placeholder="備註（選填）" style="flex:1" />
+              </div>
+              <div class="form-row">
+                <button type="submit" class="primary">儲存範本</button>
+                <button type="button" id="template-form-cancel" class="secondary">取消</button>
+              </div>
+            </form>
+          </div>
+          <div id="templates-list" class="templates-grid"></div>
+        </section>
+      </section>
+
+      <!-- ── 帳戶 ─────────────────────────────────────────────────────────── -->
+      <section id="accounts-view" class="view">
+        <div class="metrics">
+          <div class="metric"><span>總資產</span><strong id="account-total-assets">0</strong></div>
+          <div class="metric"><span>總負債</span><strong id="account-total-liabilities">0</strong></div>
+          <div class="metric"><span>淨資產</span><strong id="account-net-worth">0</strong></div>
+          <div class="metric"><span>帳戶數</span><strong id="account-count">0</strong></div>
+        </div>
+        <section class="panel">
+          <div class="section-header">
+            <h2>帳戶列表</h2>
+          </div>
+          <form id="account-create-form" class="toolbar" style="flex-wrap:wrap;margin-bottom:14px;">
+            <input name="name" placeholder="帳戶名稱" maxlength="40" style="width:150px;" />
+            <select name="type">
+              <option value="bank">銀行</option>
+              <option value="cash">現金</option>
+              <option value="credit">信用卡</option>
+              <option value="investment">投資</option>
+              <option value="other">其他</option>
+            </select>
+            <input name="balance" type="number" placeholder="初始餘額" step="0.01" style="width:120px;" />
+            <select name="currency">
+              <option value="TWD">TWD</option>
+              <option value="USD">USD</option>
+              <option value="JPY">JPY</option>
+              <option value="EUR">EUR</option>
+              <option value="CNY">CNY</option>
+              <option value="HKD">HKD</option>
+            </select>
+            <button type="submit">新增帳戶</button>
+          </form>
+          <div id="accounts-list" class="list"></div>
+        </section>
+        <section class="panel">
+          <h2>跨帳戶轉帳</h2>
+          <form id="transfer-form" class="toolbar" style="flex-wrap:wrap;">
+            <select id="transfer-from" name="fromAccountId">
+              <option value="">從帳戶</option>
+            </select>
+            <select id="transfer-to" name="toAccountId">
+              <option value="">到帳戶</option>
+            </select>
+            <input name="amount" type="number" placeholder="金額" min="0.01" step="0.01" style="width:120px;" />
+            <input name="note" type="text" placeholder="備註" style="width:160px;" />
+            <button type="submit">轉帳</button>
+          </form>
+        </section>
+      </section>
+
+      <!-- ── 帳本 ─────────────────────────────────────────────────────────── -->
+      <section id="ledgers-view" class="view">
+        <section class="panel">
+          <div class="section-header">
+            <h2>未封存帳本</h2>
+            <form id="ledger-create-form" class="inline-form">
+              <input name="name" placeholder="新帳本名稱" maxlength="30" />
+              <button type="submit">新增</button>
+            </form>
+          </div>
+          <div id="active-ledgers" class="list"></div>
+        </section>
+        <section class="panel">
+          <h2>封存帳本</h2>
+          <div id="archived-ledgers" class="list"></div>
+        </section>
+      </section>
+
+      <!-- ── 預算 ─────────────────────────────────────────────────────────── -->
+      <section id="budget-view" class="view">
+        <section class="panel">
+          <div class="section-header">
+            <h2>月份預算</h2>
+            <div class="month-nav">
+              <button id="budget-prev-month" class="secondary">‹</button>
+              <span id="budget-month-label"></span>
+              <button id="budget-next-month" class="secondary">›</button>
+            </div>
+          </div>
+          <div id="budget-list" class="list"></div>
+          <form id="budget-add-form" class="inline-form" style="margin-top:14px;">
+            <select id="budget-category-select" name="category"></select>
+            <input type="number" name="amount" placeholder="預算金額" min="1" step="1" style="width:130px;" />
+            <button type="submit">設定預算</button>
+          </form>
+        </section>
+      </section>
+
+      <!-- ── 目標 ─────────────────────────────────────────────────────────── -->
+      <section id="goals-view" class="view">
+        <section class="panel">
+          <div class="section-header">
+            <h2>儲蓄目標</h2>
+          </div>
+          <form id="goal-create-form" class="toolbar" style="flex-wrap:wrap;margin-bottom:14px;">
+            <input name="name" placeholder="目標名稱" maxlength="40" style="width:160px;" />
+            <input name="targetAmount" type="number" placeholder="目標金額" min="1" step="0.01" style="width:130px;" />
+            <input name="deadline" type="date" />
+            <button type="submit">新增目標</button>
+          </form>
+          <div id="goals-list" class="list"></div>
+        </section>
+      </section>
+
+      <!-- ── 定期交易 ───────────────────────────────────────────────────────── -->
+      <section id="recurring-view" class="view">
+        <section class="panel">
+          <h2>定期交易</h2>
+          <div id="recurring-list" class="list"></div>
+        </section>
+        <section class="panel">
+          <h2>新增定期交易</h2>
+          <form id="recurring-create-form" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">
+            <div class="form-field">
+              <label>類型</label>
+              <select id="rec-type" name="type">
+                <option value="expense">支出</option>
+                <option value="income">進帳</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>帳本</label>
+              <select id="rec-ledger" name="ledgerId"></select>
+            </div>
+            <div class="form-field">
+              <label>類別</label>
+              <select id="rec-category" name="category"></select>
+            </div>
+            <div class="form-field">
+              <label>子類別</label>
+              <select id="rec-subcategory" name="subcategory"></select>
+            </div>
+            <div class="form-field">
+              <label>付款方式</label>
+              <select id="rec-payment" name="paymentMethod"></select>
+            </div>
+            <div class="form-field">
+              <label>金額</label>
+              <input name="amount" type="number" placeholder="0" min="0.01" step="0.01" />
+            </div>
+            <div class="form-field">
+              <label>每月幾號（1-28）</label>
+              <input name="dayOfMonth" type="number" min="1" max="28" value="1" />
+            </div>
+            <div class="form-field">
+              <label>說明</label>
+              <input name="description" type="text" placeholder="（可留空）" maxlength="200" />
+            </div>
+            <div style="grid-column:1/-1;">
+              <button type="submit">新增定期交易</button>
+            </div>
+          </form>
+        </section>
+      </section>
+
+      <!-- ── 帳單提醒 ───────────────────────────────────────────────────────── -->
+      <section id="reminders-view" class="view">
+        <section class="panel">
+          <div class="section-header">
+            <h2>帳單提醒</h2>
+          </div>
+          <form id="reminder-create-form" class="toolbar" style="flex-wrap:wrap;margin-bottom:14px;">
+            <input name="name" placeholder="提醒名稱" maxlength="40" style="width:160px;" />
+            <input name="amount" type="number" placeholder="金額" min="0" step="0.01" style="width:110px;" />
+            <input name="dueDay" type="number" placeholder="每月幾號" min="1" max="28" style="width:110px;" />
+            <input name="note" type="text" placeholder="備註" style="width:160px;" />
+            <button type="submit">新增提醒</button>
+          </form>
+          <div id="reminders-list" class="list"></div>
+        </section>
+      </section>
+
+      <!-- ── 趨勢報表 ───────────────────────────────────────────────────────── -->
+      <section id="reports-view" class="view">
+        <div class="metrics" id="reports-metrics">
+          <div class="metric"><span>平均月支出</span><strong id="rpt-avg-expense">0</strong></div>
+          <div class="metric"><span>最高月支出</span><strong id="rpt-max-expense">0</strong></div>
+          <div class="metric"><span>平均月進帳</span><strong id="rpt-avg-income">0</strong></div>
+          <div class="metric"><span>最高月進帳</span><strong id="rpt-max-income">0</strong></div>
+        </div>
+        <section class="panel">
+          <div class="section-header">
+            <h2>收支趨勢</h2>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <select id="trend-months">
+                <option value="6">過去 6 個月</option>
+                <option value="12">過去 12 個月</option>
+                <option value="24">過去 24 個月</option>
+              </select>
+              <button id="print-report-btn" class="secondary">列印報表</button>
+            </div>
+          </div>
+          <div id="trend-chart"></div>
+          <div class="trend-legend">
+            <span><span class="swatch" style="background:var(--success)"></span>進帳</span>
+            <span><span class="swatch" style="background:var(--danger)"></span>支出</span>
+          </div>
+        </section>
+        <section class="panel">
+          <h2>各類別支出趨勢</h2>
+          <div id="category-trend-chart"></div>
+        </section>
+      </section>
+
+      <!-- ── 分帳 ─────────────────────────────────────────────────────────── -->
+      <section id="splits-view" class="view">
+        <section class="panel">
+          <h2>分帳記錄</h2>
+          <div id="splits-list" class="list"></div>
+        </section>
+        <section class="panel">
+          <h2>新增分帳</h2>
+          <form id="split-create-form" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">
+            <div class="form-field">
+              <label>標題</label>
+              <input name="title" placeholder="分帳標題" maxlength="80" />
+            </div>
+            <div class="form-field">
+              <label>總金額</label>
+              <input name="totalAmount" type="number" placeholder="0" min="0.01" step="0.01" />
+            </div>
+            <div class="form-field" style="grid-column:1/-1;">
+              <label>備註</label>
+              <input name="note" type="text" placeholder="（可留空）" maxlength="200" />
+            </div>
+            <div style="grid-column:1/-1;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <strong>參與者</strong>
+                <button type="button" id="add-participant-btn" class="secondary">+ 新增參與者</button>
+              </div>
+              <div id="split-participants-input">
+                <div id="split-participants-rows"></div>
+              </div>
+            </div>
+            <div style="grid-column:1/-1;">
+              <button type="submit">建立分帳</button>
+            </div>
+          </form>
+        </section>
+      </section>
+
+      <!-- ── 設定 ─────────────────────────────────────────────────────────── -->
+      <section id="settings-view" class="view">
+        <section class="panel">
+          <h2>外觀</h2>
+          <div class="row">
+            <div class="row-main">
+              <div class="row-title">深色模式</div>
+              <div class="row-meta">切換亮色 / 深色主題</div>
+            </div>
+            <button id="settings-dark-toggle" class="secondary">切換</button>
+          </div>
+        </section>
+        <section class="panel">
+          <h2>付款方式</h2>
+          <form class="inline-form setting-create" data-kind="payment">
+            <input name="name" placeholder="新增付款方式" maxlength="40" />
+            <button type="submit">新增</button>
+          </form>
+          <div id="payment-settings" class="list"></div>
+        </section>
+        <section class="panel">
+          <h2>支出類別</h2>
+          <form class="inline-form setting-create" data-kind="expense-category">
+            <input name="name" placeholder="新增支出類別" maxlength="40" />
+            <button type="submit">新增</button>
+          </form>
+          <div id="expense-settings" class="category-list"></div>
+        </section>
+        <section class="panel">
+          <h2>收入類別</h2>
+          <form class="inline-form setting-create" data-kind="income-category">
+            <input name="name" placeholder="新增收入類別" maxlength="40" />
+            <button type="submit">新增</button>
+          </form>
+          <div id="income-settings" class="category-list"></div>
+        </section>
+
+        <!-- Security / PIN -->
+        <section class="panel">
+          <h2>安全設定 (PIN 鎖)</h2>
+          <div id="pin-status" class="text-muted" style="margin-bottom:10px;font-size:13px">載入中...</div>
+          <form id="set-pin-form" class="inline-form">
+            <input type="password" id="new-pin-input" placeholder="新 PIN（4-8位，留空清除）" maxlength="8" style="width:200px" />
+            <button type="submit" class="secondary">設定/清除 PIN</button>
+          </form>
+        </section>
+
+        <!-- Push Notifications -->
+        <section class="panel">
+          <h2>推播通知</h2>
+          <div id="notification-status" class="text-muted" style="font-size:13px;margin-bottom:10px">載入中...</div>
+          <button id="enable-notifications-btn" class="secondary">啟用通知</button>
+        </section>
+
+        <!-- Backup & Restore -->
+        <section class="panel">
+          <h2>備份與還原</h2>
+          <p class="text-muted" style="font-size:13px;margin-bottom:12px">匯出 JSON 備份可用於還原資料</p>
+          <div class="inline-form">
+            <button id="backup-btn" class="secondary">匯出備份 (JSON)</button>
+            <label class="btn secondary" style="cursor:pointer">
+              還原備份
+              <input type="file" id="restore-input" accept=".json" hidden />
+            </label>
+          </div>
+          <div id="restore-result" style="margin-top:8px;font-size:13px"></div>
+        </section>
+
+        <!-- Dashboard Customization -->
+        <section class="panel">
+          <h2>儀表板自訂</h2>
+          <div id="dashboard-cards-config" class="list" style="display:flex;flex-direction:column;gap:8px"></div>
+        </section>
+
+        <!-- Exchange Rates -->
+        <section class="panel">
+          <h2>匯率資訊 (以 TWD 為基準)</h2>
+          <div id="exchange-rates-panel" class="text-muted" style="font-size:13px">載入中...</div>
+        </section>
+      </section>
+    </main>
+
+    <!-- ── 新增交易 Modal ────────────────────────────────────────────────────── -->
+    <div id="tx-modal-overlay" class="modal-overlay" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <h2 id="modal-title">新增交易</h2>
+        <form id="tx-modal-form" autocomplete="off">
+          <div class="form-row">
+            <label>類型</label>
+            <div class="type-toggle">
+              <button type="button" class="type-btn active" data-type="expense">支出</button>
+              <button type="button" class="type-btn" data-type="income">進帳</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>帳本</label>
+            <select id="modal-ledger" name="ledgerId"></select>
+          </div>
+          <div class="form-row">
+            <label>類別</label>
+            <select id="modal-category" name="category"></select>
+          </div>
+          <div class="form-row">
+            <label>子類別</label>
+            <select id="modal-subcategory" name="subcategory"></select>
+          </div>
+          <div class="form-row">
+            <label>付款方式</label>
+            <select id="modal-payment" name="paymentMethod"></select>
+          </div>
+          <div class="form-row">
+            <label>金額</label>
+            <input id="modal-amount" type="number" name="amount" placeholder="0" min="0.01" step="0.01" />
+          </div>
+          <div class="form-row">
+            <label>幣別</label>
+            <select id="modal-currency" name="currency">
+              <option value="TWD">TWD</option>
+              <option value="USD">USD</option>
+              <option value="JPY">JPY</option>
+              <option value="EUR">EUR</option>
+              <option value="CNY">CNY</option>
+              <option value="HKD">HKD</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>備註</label>
+            <input type="text" name="description" placeholder="（可留空）" maxlength="200" />
+          </div>
+          <div class="form-row">
+            <label>標籤</label>
+            <input type="text" name="tags" placeholder="標籤，用逗號分隔" maxlength="200" />
+          </div>
+          <div class="modal-actions">
+            <button type="button" id="tx-modal-cancel" class="secondary">取消</button>
+            <button type="submit">確定新增</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <button id="add-tx-fab" class="fab" title="新增交易">＋</button>
+
+    <!-- Auth lock screen -->
+    <div id="auth-overlay" class="auth-overlay" hidden>
+      <div class="auth-box">
+        <div class="auth-logo">帳本</div>
+        <h2>請輸入 PIN 碼解鎖</h2>
+        <form id="auth-form">
+          <input type="password" id="pin-input" placeholder="PIN 碼 (4-8位)" maxlength="8" autocomplete="off" inputmode="numeric" />
+          <button type="submit" class="primary" style="width:100%;margin-top:12px">解鎖</button>
+        </form>
+        <div id="auth-error" class="auth-error" hidden>PIN 碼錯誤，請再試一次</div>
+      </div>
+    </div>
+
+    <!-- Batch action bar -->
+    <div id="batch-action-bar" class="batch-bar" hidden>
+      <span id="batch-count">0 筆已選</span>
+      <div class="batch-actions">
+        <select id="batch-move-ledger" class="select-inline"></select>
+        <button id="batch-move-btn" class="secondary">移至帳本</button>
+        <button id="batch-delete-btn" class="danger">刪除所選</button>
+        <button id="batch-clear-btn" class="secondary">取消</button>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
