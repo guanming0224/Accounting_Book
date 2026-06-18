@@ -224,9 +224,40 @@ export class Database {
           )
         `);
 
+        // Transaction templates
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS transaction_templates (
+            templateId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('expense','income')),
+            ledgerId INTEGER NOT NULL,
+            amount REAL DEFAULT 0,
+            category TEXT NOT NULL DEFAULT '',
+            subcategory TEXT NOT NULL DEFAULT '',
+            paymentMethod TEXT NOT NULL DEFAULT '',
+            description TEXT DEFAULT '',
+            currency TEXT DEFAULT 'TWD',
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+
+        // App config
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS app_config (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT '',
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+
         // Safe column migrations (silently ignore "column already exists")
         this.db.run(`ALTER TABLE transactions ADD COLUMN tags TEXT DEFAULT ''`, () => {});
         this.db.run(`ALTER TABLE transactions ADD COLUMN currency TEXT DEFAULT 'TWD'`, () => {});
+        this.db.run(`ALTER TABLE accounts ADD COLUMN statementDay INTEGER DEFAULT 0`, () => {});
+        this.db.run(`ALTER TABLE accounts ADD COLUMN paymentDay INTEGER DEFAULT 0`, () => {});
+        this.db.run(`ALTER TABLE accounts ADD COLUMN creditLimit REAL DEFAULT 0`, () => {});
 
         // Create index for faster queries
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_ledger ON transactions(ledgerId)`);
@@ -239,6 +270,7 @@ export class Database {
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring_transactions(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_reminders_user ON bill_reminders(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_splits_user ON split_bills(userId)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_templates_user ON transaction_templates(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_subcategories_category ON user_subcategories(categoryId)`, (err) => {
           if (err) reject(err);
           else resolve();

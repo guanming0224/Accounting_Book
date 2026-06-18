@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
+import crypto from 'crypto';
 import { db } from '../db/sqlite';
 import { cacheManager } from '../db/cache';
 import { userModule } from '../modules/user/user';
@@ -10,6 +11,10 @@ import { TransactionType } from '../types';
 
 const DEFAULT_WEB_USER_ID = 0;
 const PORT = Number(process.env.WEB_PORT || 3000);
+
+const validTokens = new Set<string>();
+let appPinHash = '';
+let appPinEnabled = false;
 
 function asyncHandler(fn: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response) => {
@@ -100,6 +105,15 @@ async function resolveUserId(req: Request): Promise<number> {
   return userId;
 }
 
+function requireAuth(req: Request, res: Response): boolean {
+  if (!appPinEnabled) return true;
+  const auth = req.headers['authorization'] || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (validTokens.has(token)) return true;
+  res.status(401).json({ error: 'UNAUTHORIZED' });
+  return false;
+}
+
 async function getSettings(userId: number) {
   const [paymentMethods, expenseCategories, incomeCategories] = await Promise.all([
     settingsModule.getPaymentMethods(userId),
@@ -113,8 +127,334 @@ async function startWebServer() {
   await db.initialize();
   await cacheManager.connect();
 
+  // Load app PIN config
+  const pinEnabledRow = await db.get<any>(`SELECT value FROM app_config WHERE key = 'pin_enabled'`);
+  const pinHashRow = await db.get<any>(`SELECT value FROM app_config WHERE key = 'pin_hash'`);
+  if (pinEnabledRow?.value === '1' && pinHashRow?.value) {
+    appPinEnabled = true;
+    appPinHash = pinHashRow.value;
+  }
+
   const app = express();
   app.use(express.json());
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  app.get('/api/auth/status', (_req, res) => {
+    res.json({ pinEnabled: appPinEnabled });
+  });
+
+  app.post('/api/auth/login', asyncHandler(async (req, res) => {
+    if (!appPinEnabled) { res.json({ token: 'no-auth' }); return; }
+    const pin = String(req.body.pin || '');
+    const hash = crypto.createHash('sha256').update(pin).digest('hex');
+    if (hash !== appPinHash) throw new Error('INVALID_PIN');
+    const token = crypto.randomBytes(32).toString('hex');
+    validTokens.add(token);
+    res.json({ token });
+  }));
+
+  app.post('/api/auth/set-pin', asyncHandler(async (req, res) => {
+    const pin = String(req.body.pin || '').trim();
+    if (!pin) {
+      // Clear PIN
+      appPinEnabled = false;
+      appPinHash = '';
+      validTokens.clear();
+      await db.run(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('pin_enabled', '0')`);
+      await db.run(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('pin_hash', '')`);
+      res.json({ pinEnabled: false });
+      return;
+    }
+    if (pin.length < 4 || pin.length > 8) throw new Error('PIN_LENGTH_INVALID');
+    const hash = crypto.createHash('sha256').update(pin).digest('hex');
+    appPinHash = hash;
+    appPinEnabled = true;
+    validTokens.clear();
+    await db.run(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('pin_enabled', '1')`);
+    await db.run(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('pin_hash', ?)`, [hash]);
+    res.json({ pinEnabled: true });
+  }));
+
+  app.post('/api/auth/logout', (req, res) => {
+    const auth = req.headers['authorization'] || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    validTokens.delete(token);
+    res.json({ ok: true });
+  });
+
+  // ── Exchange rates ────────────────────────────────────────────────────────
+  let _ratesCache: { rates: Record<string, number>; date: string } | null = null;
+  let _ratesCacheTime = 0;
+
+  app.get('/api/exchange-rates', asyncHandler(async (_req, res) => {
+    const now = Date.now();
+    if (!_ratesCache || now - _ratesCacheTime > 24 * 60 * 60 * 1000) {
+      try {
+        const resp = await fetch('https://api.frankfurter.app/latest?base=TWD');
+        const data = await resp.json() as any;
+        _ratesCache = { rates: data.rates, date: data.date };
+        _ratesCacheTime = now;
+      } catch {
+        if (!_ratesCache) throw new Error('EXCHANGE_RATE_UNAVAILABLE');
+      }
+    }
+    res.json({ ..._ratesCache, base: 'TWD' });
+  }));
+
+  // ── Transaction templates ────────────────────────────────────────────────
+  app.get('/api/templates', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    res.json(await db.all<any>('SELECT * FROM transaction_templates WHERE userId = ? ORDER BY name ASC', [userId]));
+  }));
+
+  app.post('/api/templates', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { name, type, ledgerId, amount, category, subcategory, paymentMethod, description, currency } = req.body;
+    if (!name) throw new Error('NAME_REQUIRED');
+    if (!['expense', 'income'].includes(String(type))) throw new Error('INVALID_TYPE');
+    const result = await db.run(
+      `INSERT INTO transaction_templates (userId, name, type, ledgerId, amount, category, subcategory, paymentMethod, description, currency)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, String(name), String(type), Number(ledgerId), Number(amount || 0),
+       String(category || ''), String(subcategory || ''), String(paymentMethod || ''),
+       String(description || ''), String(currency || 'TWD')]
+    );
+    res.json(await db.get<any>('SELECT * FROM transaction_templates WHERE templateId = ?', [result.lastID]));
+  }));
+
+  app.delete('/api/templates/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const result = await db.run(
+      'DELETE FROM transaction_templates WHERE templateId = ? AND userId = ?',
+      [Number(req.params.id), userId]
+    );
+    if (!result.changes) throw new Error('TEMPLATE_NOT_FOUND');
+    res.json({ ok: true });
+  }));
+
+  // ── Batch operations ─────────────────────────────────────────────────────
+  app.post('/api/transactions/batch-delete', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const ids: number[] = Array.isArray(req.body.ids) ? req.body.ids.map(Number) : [];
+    if (!ids.length) throw new Error('IDS_REQUIRED');
+    const placeholders = ids.map(() => '?').join(',');
+    const result = await db.run(`DELETE FROM transactions WHERE transactionId IN (${placeholders})`, ids);
+    res.json({ deleted: result.changes });
+  }));
+
+  app.post('/api/transactions/batch-move', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const ids: number[] = Array.isArray(req.body.ids) ? req.body.ids.map(Number) : [];
+    const ledgerId = Number(req.body.ledgerId);
+    if (!ids.length) throw new Error('IDS_REQUIRED');
+    if (Number.isNaN(ledgerId)) throw new Error('LEDGER_ID_REQUIRED');
+    const ledger = await db.get<any>('SELECT * FROM ledgers WHERE ledgerId = ? AND userId = ?', [ledgerId, userId]);
+    if (!ledger) throw new Error('LEDGER_NOT_FOUND');
+    const placeholders = ids.map(() => '?').join(',');
+    const result = await db.run(
+      `UPDATE transactions SET ledgerId = ? WHERE transactionId IN (${placeholders})`,
+      [ledgerId, ...ids]
+    );
+    res.json({ updated: result.changes });
+  }));
+
+  // ── Financial insights ────────────────────────────────────────────────────
+  app.get('/api/insights', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { year, month } = getTaipeiTodayParts();
+
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    const curr = monthRangeForYearMonth(year, month);
+    const prev = monthRangeForYearMonth(prevYear, prevMonth);
+
+    const [currRows, prevRows, goals, budgets] = await Promise.all([
+      db.all<{ category: string; total: number }>(
+        `SELECT t.category, SUM(t.amount) as total FROM transactions t
+         INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+         WHERE l.userId = ? AND t.type = 'expense' AND t.createdAt >= ? AND t.createdAt < ?
+         GROUP BY t.category`,
+        [userId, curr.startDate, curr.endDate]
+      ),
+      db.all<{ category: string; total: number }>(
+        `SELECT t.category, SUM(t.amount) as total FROM transactions t
+         INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+         WHERE l.userId = ? AND t.type = 'expense' AND t.createdAt >= ? AND t.createdAt < ?
+         GROUP BY t.category`,
+        [userId, prev.startDate, prev.endDate]
+      ),
+      db.all<any>('SELECT * FROM goals WHERE userId = ?', [userId]),
+      db.all<any>('SELECT * FROM budgets WHERE userId = ? AND year = ? AND month = ?', [userId, year, month]),
+    ]);
+
+    const currMap = new Map(currRows.map((r) => [r.category, r.total]));
+    const prevMap = new Map(prevRows.map((r) => [r.category, r.total]));
+    const insights: { type: string; title: string; message: string; severity: string }[] = [];
+
+    // Category changes
+    const allCats = new Set([...currMap.keys(), ...prevMap.keys()]);
+    const deltas: { cat: string; delta: number; pct: number }[] = [];
+    for (const cat of allCats) {
+      const c = currMap.get(cat) || 0;
+      const p = prevMap.get(cat) || 0;
+      if (p > 0) deltas.push({ cat, delta: c - p, pct: ((c - p) / p) * 100 });
+    }
+    deltas.sort((a, b) => b.delta - a.delta);
+    if (deltas.length > 0) {
+      const top = deltas[0];
+      if (top.delta > 0) {
+        insights.push({
+          type: 'spending_up',
+          title: `${top.cat} 支出上升`,
+          message: `本月「${top.cat}」支出比上月增加 ${top.pct.toFixed(0)}%（+$${top.delta.toFixed(0)}）`,
+          severity: top.pct > 50 ? 'warning' : 'info',
+        });
+      }
+      const bottom = deltas[deltas.length - 1];
+      if (bottom.delta < -100) {
+        insights.push({
+          type: 'spending_down',
+          title: `${bottom.cat} 支出下降`,
+          message: `本月「${bottom.cat}」支出比上月減少 ${Math.abs(bottom.pct).toFixed(0)}%（-$${Math.abs(bottom.delta).toFixed(0)}）`,
+          severity: 'success',
+        });
+      }
+    }
+
+    // Budget adherence
+    if (budgets.length > 0) {
+      for (const b of budgets) {
+        const actual = currMap.get(b.category) || 0;
+        if (actual > b.amount) {
+          insights.push({
+            type: 'budget_over',
+            title: `預算超支：${b.category}`,
+            message: `「${b.category}」本月已支出 $${actual.toFixed(0)}，超出預算 $${b.amount.toFixed(0)}（超 $${(actual - b.amount).toFixed(0)}）`,
+            severity: 'warning',
+          });
+        }
+      }
+    }
+
+    // Goal progress
+    for (const g of goals) {
+      if (g.targetAmount > 0) {
+        const pct = (g.savedAmount / g.targetAmount) * 100;
+        if (pct >= 100) {
+          insights.push({ type: 'goal_done', title: `目標達成！${g.name}`, message: `恭喜達成「${g.name}」目標！`, severity: 'success' });
+        } else if (g.deadline) {
+          const daysLeft = Math.ceil((new Date(g.deadline).getTime() - Date.now()) / 86400000);
+          if (daysLeft > 0 && daysLeft <= 30) {
+            insights.push({ type: 'goal_deadline', title: `目標即將到期：${g.name}`, message: `「${g.name}」還差 $${(g.targetAmount - g.savedAmount).toFixed(0)}，距截止 ${daysLeft} 天`, severity: 'warning' });
+          }
+        }
+      }
+    }
+
+    // Biggest expense
+    if (currRows.length > 0) {
+      const sorted = [...currRows].sort((a, b) => b.total - a.total);
+      insights.push({
+        type: 'top_expense',
+        title: '本月最大支出類別',
+        message: `本月支出最多為「${sorted[0].category}」，共 $${sorted[0].total.toFixed(0)}`,
+        severity: 'info',
+      });
+    }
+
+    // No data
+    if (insights.length === 0) {
+      insights.push({ type: 'no_data', title: '尚無足夠資料', message: '繼續記帳，即可獲得個人化財務洞察！', severity: 'info' });
+    }
+
+    res.json(insights);
+  }));
+
+  // ── Backup / restore ──────────────────────────────────────────────────────
+  app.get('/api/backup', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const [ledgers, transactions, budgets, goals, accounts, recurring, reminders, splits, participants, templates] = await Promise.all([
+      db.all<any>('SELECT * FROM ledgers WHERE userId = ?', [userId]),
+      db.all<any>('SELECT t.* FROM transactions t INNER JOIN ledgers l ON t.ledgerId = l.ledgerId WHERE l.userId = ?', [userId]),
+      db.all<any>('SELECT * FROM budgets WHERE userId = ?', [userId]),
+      db.all<any>('SELECT * FROM goals WHERE userId = ?', [userId]),
+      db.all<any>('SELECT * FROM accounts WHERE userId = ?', [userId]),
+      db.all<any>('SELECT * FROM recurring_transactions WHERE userId = ?', [userId]),
+      db.all<any>('SELECT * FROM bill_reminders WHERE userId = ?', [userId]),
+      db.all<any>('SELECT * FROM split_bills WHERE userId = ?', [userId]),
+      db.all<any>('SELECT sp.* FROM split_participants sp INNER JOIN split_bills sb ON sp.splitId = sb.splitId WHERE sb.userId = ?', [userId]),
+      db.all<any>('SELECT * FROM transaction_templates WHERE userId = ?', [userId]),
+    ]);
+    const backup = { version: 2, exportedAt: new Date().toISOString(), userId, ledgers, transactions, budgets, goals, accounts, recurring, reminders, splits, participants, templates };
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="accounting-backup-${new Date().toISOString().slice(0,10)}.json"`);
+    res.json(backup);
+  }));
+
+  app.post('/api/restore', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const data = req.body;
+    if (!data?.version || !Array.isArray(data.ledgers)) throw new Error('INVALID_BACKUP');
+
+    // Clear existing data for this user
+    await db.run('DELETE FROM transactions WHERE ledgerId IN (SELECT ledgerId FROM ledgers WHERE userId = ?)', [userId]);
+    await db.run('DELETE FROM ledgers WHERE userId = ?', [userId]);
+    await db.run('DELETE FROM budgets WHERE userId = ?', [userId]);
+    await db.run('DELETE FROM goals WHERE userId = ?', [userId]);
+    await db.run('DELETE FROM accounts WHERE userId = ?', [userId]);
+    await db.run('DELETE FROM recurring_transactions WHERE userId = ?', [userId]);
+    await db.run('DELETE FROM bill_reminders WHERE userId = ?', [userId]);
+    await db.run('DELETE FROM split_participants WHERE splitId IN (SELECT splitId FROM split_bills WHERE userId = ?)', [userId]);
+    await db.run('DELETE FROM split_bills WHERE userId = ?', [userId]);
+    await db.run('DELETE FROM transaction_templates WHERE userId = ?', [userId]);
+
+    let restored = 0;
+    for (const l of (data.ledgers || [])) {
+      await db.run('INSERT OR IGNORE INTO ledgers (ledgerId, userId, name, isArchived, createdAt, updatedAt) VALUES (?,?,?,?,?,?)',
+        [l.ledgerId, userId, l.name, l.isArchived || 0, l.createdAt, l.updatedAt]);
+    }
+    for (const t of (data.transactions || [])) {
+      await db.run('INSERT OR IGNORE INTO transactions (transactionId, ledgerId, type, amount, category, subcategory, paymentMethod, description, tags, currency, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        [t.transactionId, t.ledgerId, t.type, t.amount, t.category, t.subcategory, t.paymentMethod, t.description || '', t.tags || '', t.currency || 'TWD', t.createdAt]);
+      restored++;
+    }
+    for (const g of (data.goals || [])) {
+      await db.run('INSERT OR IGNORE INTO goals (goalId, userId, name, targetAmount, savedAmount, deadline, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?)',
+        [g.goalId, userId, g.name, g.targetAmount, g.savedAmount || 0, g.deadline || '', g.createdAt, g.updatedAt]);
+    }
+    for (const a of (data.accounts || [])) {
+      await db.run('INSERT OR IGNORE INTO accounts (accountId, userId, name, type, balance, currency, note, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?)',
+        [a.accountId, userId, a.name, a.type || 'bank', a.balance || 0, a.currency || 'TWD', a.note || '', a.createdAt, a.updatedAt]);
+    }
+    for (const r of (data.recurring || [])) {
+      await db.run('INSERT OR IGNORE INTO recurring_transactions (recurringId, userId, ledgerId, type, amount, category, subcategory, paymentMethod, description, dayOfMonth, nextDate, isActive, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [r.recurringId, userId, r.ledgerId, r.type, r.amount, r.category, r.subcategory, r.paymentMethod, r.description || '', r.dayOfMonth || 1, r.nextDate || '', r.isActive ?? 1, r.createdAt, r.updatedAt]);
+    }
+    for (const r of (data.reminders || [])) {
+      await db.run('INSERT OR IGNORE INTO bill_reminders (reminderId, userId, name, amount, dueDay, note, isActive, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?)',
+        [r.reminderId, userId, r.name, r.amount || 0, r.dueDay, r.note || '', r.isActive ?? 1, r.createdAt, r.updatedAt]);
+    }
+    for (const s of (data.splits || [])) {
+      await db.run('INSERT OR IGNORE INTO split_bills (splitId, userId, title, totalAmount, note, isSettled, createdAt) VALUES (?,?,?,?,?,?,?)',
+        [s.splitId, userId, s.title, s.totalAmount, s.note || '', s.isSettled || 0, s.createdAt]);
+    }
+    for (const p of (data.participants || [])) {
+      await db.run('INSERT OR IGNORE INTO split_participants (participantId, splitId, name, amount, isPaid) VALUES (?,?,?,?,?)',
+        [p.participantId, p.splitId, p.name, p.amount, p.isPaid || 0]);
+    }
+    for (const t of (data.templates || [])) {
+      await db.run('INSERT OR IGNORE INTO transaction_templates (templateId, userId, name, type, ledgerId, amount, category, subcategory, paymentMethod, description, currency, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        [t.templateId, userId, t.name, t.type, t.ledgerId, t.amount || 0, t.category || '', t.subcategory || '', t.paymentMethod || '', t.description || '', t.currency || 'TWD', t.createdAt]);
+    }
+    res.json({ ok: true, restoredTransactions: restored });
+  }));
 
   app.get('/api/context', asyncHandler(async (req, res) => {
     const userId = await resolveUserId(req);
@@ -123,6 +463,7 @@ async function startWebServer() {
   }));
 
   app.get('/api/dashboard', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const ledgers = await ledgerModule.getUserLedgers(userId);
     const range = currentMonthRange();
@@ -196,19 +537,23 @@ async function startWebServer() {
   }));
 
   app.get('/api/ledgers', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     res.json(await ledgerModule.getUserLedgers(await resolveUserId(req)));
   }));
 
   app.get('/api/ledgers/archived', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     res.json(await ledgerModule.getArchivedLedgers(await resolveUserId(req)));
   }));
 
   app.post('/api/ledgers', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const ledger = await ledgerModule.createLedger(await resolveUserId(req), String(req.body.name || ''));
     res.json(ledger);
   }));
 
   app.patch('/api/ledgers/:id/name', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const ledger = await ledgerModule.renameLedger(
       await resolveUserId(req),
       Number(req.params.id),
@@ -218,11 +563,13 @@ async function startWebServer() {
   }));
 
   app.patch('/api/ledgers/:id/archive', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     await ledgerModule.archiveLedger(await resolveUserId(req), Number(req.params.id));
     res.json({ ok: true });
   }));
 
   app.patch('/api/ledgers/:id/unarchive', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     await ledgerModule.unarchiveLedger(await resolveUserId(req), Number(req.params.id));
     res.json({ ok: true });
   }));
@@ -240,6 +587,7 @@ async function startWebServer() {
   }));
 
   app.patch('/api/transactions/:id/amount', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const transaction = await transactionModule.getTransactionById(Number(req.params.id));
     if (!transaction) throw new Error('TRANSACTION_NOT_FOUND');
     const amount = Number(req.body.amount);
@@ -248,6 +596,7 @@ async function startWebServer() {
   }));
 
   app.patch('/api/transactions/:id/note', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const transaction = await transactionModule.getTransactionById(Number(req.params.id));
     if (!transaction) throw new Error('TRANSACTION_NOT_FOUND');
     res.json(
@@ -260,6 +609,7 @@ async function startWebServer() {
   }));
 
   app.delete('/api/transactions/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const transaction = await transactionModule.getTransactionById(Number(req.params.id));
     if (!transaction) throw new Error('TRANSACTION_NOT_FOUND');
     await transactionModule.deleteTransaction(transaction.transactionId, transaction.ledgerId);
@@ -267,34 +617,40 @@ async function startWebServer() {
   }));
 
   app.get('/api/settings', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     res.json(await getSettings(await resolveUserId(req)));
   }));
 
   app.post('/api/settings/payment', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     await settingsModule.addPaymentMethod(userId, String(req.body.name || ''));
     res.json(await getSettings(userId));
   }));
 
   app.patch('/api/settings/payment', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     await settingsModule.renamePaymentMethod(userId, String(req.body.oldName || ''), String(req.body.newName || ''));
     res.json(await getSettings(userId));
   }));
 
   app.delete('/api/settings/payment', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     await settingsModule.deletePaymentMethod(userId, String(req.query.name || ''));
     res.json(await getSettings(userId));
   }));
 
   app.post('/api/settings/category', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     await settingsModule.addCategory(userId, req.body.type as TransactionType, String(req.body.name || ''));
     res.json(await getSettings(userId));
   }));
 
   app.patch('/api/settings/category', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     await settingsModule.renameCategory(
       userId,
@@ -306,6 +662,7 @@ async function startWebServer() {
   }));
 
   app.delete('/api/settings/category', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     await settingsModule.deleteCategory(
       userId,
@@ -316,6 +673,7 @@ async function startWebServer() {
   }));
 
   app.post('/api/settings/subcategory', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     await settingsModule.addSubcategory(
       userId,
@@ -327,6 +685,7 @@ async function startWebServer() {
   }));
 
   app.patch('/api/settings/subcategory', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     await settingsModule.renameSubcategory(
       userId,
@@ -339,6 +698,7 @@ async function startWebServer() {
   }));
 
   app.delete('/api/settings/subcategory', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     await settingsModule.deleteSubcategory(
       userId,
@@ -351,6 +711,7 @@ async function startWebServer() {
 
   // ── Create transaction from web ──────────────────────────────────────────
   app.post('/api/transactions', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { ledgerId, type, amount, category, subcategory, paymentMethod, description } = req.body;
     const ledgers = await ledgerModule.getUserLedgers(userId);
@@ -376,6 +737,7 @@ async function startWebServer() {
 
   // ── Budgets ──────────────────────────────────────────────────────────────
   app.get('/api/budgets', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { year, month } = getTaipeiTodayParts();
     const y = Number(req.query.year || year);
@@ -399,6 +761,7 @@ async function startWebServer() {
   }));
 
   app.post('/api/budgets', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { category, amount, year, month } = req.body;
     if (!category) throw new Error('CATEGORY_REQUIRED');
@@ -415,6 +778,7 @@ async function startWebServer() {
   }));
 
   app.delete('/api/budgets/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const result = await db.run(
       'DELETE FROM budgets WHERE budgetId = ? AND userId = ?',
@@ -426,6 +790,7 @@ async function startWebServer() {
 
   // ── Monthly trend (last N months across all active ledgers) ──────────────
   app.get('/api/reports/trend', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const months = Math.min(Math.max(Number(req.query.months || 6), 1), 24);
     const { year, month } = getTaipeiTodayParts();
@@ -468,6 +833,7 @@ async function startWebServer() {
 
   // ── CSV export ────────────────────────────────────────────────────────────
   app.get('/api/export/csv', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const ledgerId = Number(req.query.ledgerId);
     if (Number.isNaN(ledgerId)) throw new Error('LEDGER_ID_REQUIRED');
     const { startDate, endDate } = parseDateRange(req);
@@ -494,11 +860,13 @@ async function startWebServer() {
 
   // ── Goals CRUD ────────────────────────────────────────────────────────────
   app.get('/api/goals', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     res.json(await db.all<any>('SELECT * FROM goals WHERE userId = ? ORDER BY createdAt DESC', [userId]));
   }));
 
   app.post('/api/goals', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { name, targetAmount, deadline } = req.body;
     if (!name) throw new Error('NAME_REQUIRED');
@@ -512,6 +880,7 @@ async function startWebServer() {
   }));
 
   app.patch('/api/goals/:id/deposit', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const goal = await db.get<any>('SELECT * FROM goals WHERE goalId = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!goal) throw new Error('GOAL_NOT_FOUND');
@@ -526,6 +895,7 @@ async function startWebServer() {
   }));
 
   app.delete('/api/goals/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const result = await db.run('DELETE FROM goals WHERE goalId = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!result.changes) throw new Error('GOAL_NOT_FOUND');
@@ -534,6 +904,7 @@ async function startWebServer() {
 
   // ── Accounts CRUD + transfer ──────────────────────────────────────────────
   app.get('/api/accounts', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const accounts = await db.all<any>('SELECT * FROM accounts WHERE userId = ? ORDER BY createdAt ASC', [userId]);
     const totalAssets = accounts.filter((a: any) => a.balance >= 0).reduce((s: number, a: any) => s + a.balance, 0);
@@ -542,6 +913,7 @@ async function startWebServer() {
   }));
 
   app.post('/api/accounts', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { name, type, balance, currency, note } = req.body;
     if (!name) throw new Error('NAME_REQUIRED');
@@ -553,6 +925,7 @@ async function startWebServer() {
   }));
 
   app.post('/api/accounts/transfer', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { fromId, toId, amount, note } = req.body;
     const transferAmount = Number(amount);
@@ -571,6 +944,7 @@ async function startWebServer() {
   }));
 
   app.patch('/api/accounts/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const account = await db.get<any>('SELECT * FROM accounts WHERE accountId = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!account) throw new Error('ACCOUNT_NOT_FOUND');
@@ -586,6 +960,7 @@ async function startWebServer() {
   }));
 
   app.delete('/api/accounts/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const result = await db.run('DELETE FROM accounts WHERE accountId = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!result.changes) throw new Error('ACCOUNT_NOT_FOUND');
@@ -594,11 +969,13 @@ async function startWebServer() {
 
   // ── Recurring CRUD + apply ────────────────────────────────────────────────
   app.get('/api/recurring', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     res.json(await db.all<any>('SELECT * FROM recurring_transactions WHERE userId = ? ORDER BY createdAt DESC', [userId]));
   }));
 
   app.post('/api/recurring', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { ledgerId, type, amount, category, subcategory, paymentMethod, description, dayOfMonth } = req.body;
     if (!['expense', 'income'].includes(String(type))) throw new Error('INVALID_TYPE');
@@ -615,6 +992,7 @@ async function startWebServer() {
   }));
 
   app.patch('/api/recurring/:id/toggle', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const rec = await db.get<any>('SELECT * FROM recurring_transactions WHERE recurringId = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!rec) throw new Error('RECURRING_NOT_FOUND');
@@ -626,6 +1004,7 @@ async function startWebServer() {
   }));
 
   app.post('/api/recurring/:id/apply', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const rec = await db.get<any>('SELECT * FROM recurring_transactions WHERE recurringId = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!rec) throw new Error('RECURRING_NOT_FOUND');
@@ -642,6 +1021,7 @@ async function startWebServer() {
   }));
 
   app.delete('/api/recurring/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const result = await db.run('DELETE FROM recurring_transactions WHERE recurringId = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!result.changes) throw new Error('RECURRING_NOT_FOUND');
@@ -650,6 +1030,7 @@ async function startWebServer() {
 
   // ── Bill reminders ────────────────────────────────────────────────────────
   app.get('/api/reminders', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { day } = getTaipeiTodayParts();
     const reminders = await db.all<any>('SELECT * FROM bill_reminders WHERE userId = ? ORDER BY dueDay ASC', [userId]);
@@ -660,6 +1041,7 @@ async function startWebServer() {
   }));
 
   app.post('/api/reminders', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { name, amount, dueDay, note } = req.body;
     if (!name) throw new Error('NAME_REQUIRED');
@@ -673,6 +1055,7 @@ async function startWebServer() {
   }));
 
   app.patch('/api/reminders/:id/toggle', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const reminder = await db.get<any>('SELECT * FROM bill_reminders WHERE reminderId = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!reminder) throw new Error('REMINDER_NOT_FOUND');
@@ -684,6 +1067,7 @@ async function startWebServer() {
   }));
 
   app.delete('/api/reminders/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const result = await db.run('DELETE FROM bill_reminders WHERE reminderId = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!result.changes) throw new Error('REMINDER_NOT_FOUND');
@@ -692,6 +1076,7 @@ async function startWebServer() {
 
   // ── Splits ────────────────────────────────────────────────────────────────
   app.get('/api/splits', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const splits = await db.all<any>('SELECT * FROM split_bills WHERE userId = ? ORDER BY createdAt DESC', [userId]);
     const result = await Promise.all(splits.map(async (s: any) => {
@@ -702,6 +1087,7 @@ async function startWebServer() {
   }));
 
   app.post('/api/splits', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { title, totalAmount, note, participants } = req.body;
     if (!title) throw new Error('TITLE_REQUIRED');
@@ -726,6 +1112,7 @@ async function startWebServer() {
   }));
 
   app.patch('/api/splits/:splitId/participants/:pid/paid', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const split = await db.get<any>('SELECT * FROM split_bills WHERE splitId = ? AND userId = ?', [Number(req.params.splitId), userId]);
     if (!split) throw new Error('SPLIT_NOT_FOUND');
@@ -736,6 +1123,7 @@ async function startWebServer() {
   }));
 
   app.patch('/api/splits/:id/settle', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const result = await db.run(
       'UPDATE split_bills SET isSettled = 1 WHERE splitId = ? AND userId = ?',
@@ -746,6 +1134,7 @@ async function startWebServer() {
   }));
 
   app.delete('/api/splits/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const result = await db.run('DELETE FROM split_bills WHERE splitId = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!result.changes) throw new Error('SPLIT_NOT_FOUND');
@@ -754,6 +1143,7 @@ async function startWebServer() {
 
   // ── Advanced search ───────────────────────────────────────────────────────
   app.get('/api/transactions/search', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { keyword, minAmount, maxAmount, type, category, start, end } = req.query;
     const conditions: string[] = ['l.userId = ?', 'COALESCE(l.isArchived, 0) = 0'];
@@ -794,6 +1184,7 @@ async function startWebServer() {
 
   // ── Tags update ───────────────────────────────────────────────────────────
   app.patch('/api/transactions/:id/tags', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const transaction = await transactionModule.getTransactionById(Number(req.params.id));
     if (!transaction) throw new Error('TRANSACTION_NOT_FOUND');
     await db.run('UPDATE transactions SET tags = ? WHERE transactionId = ?', [String(req.body.tags || ''), transaction.transactionId]);
@@ -802,6 +1193,7 @@ async function startWebServer() {
 
   // ── CSV import ────────────────────────────────────────────────────────────
   app.post('/api/import/csv', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const { ledgerId, rows } = req.body;
     const ledgers = await ledgerModule.getUserLedgers(userId);
@@ -829,6 +1221,7 @@ async function startWebServer() {
 
   // ── Category trend ────────────────────────────────────────────────────────
   app.get('/api/reports/category-trend', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const months = Math.min(Math.max(Number(req.query.months || 6), 1), 24);
     const { year, month } = getTaipeiTodayParts();
