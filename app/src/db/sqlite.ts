@@ -130,12 +130,115 @@ export class Database {
           )
         `);
 
+        // Goals
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS goals (
+            goalId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            targetAmount REAL NOT NULL,
+            savedAmount REAL DEFAULT 0,
+            deadline TEXT DEFAULT '',
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+
+        // Accounts (bank, cash, credit card, investment)
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS accounts (
+            accountId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'bank',
+            balance REAL DEFAULT 0,
+            currency TEXT DEFAULT 'TWD',
+            note TEXT DEFAULT '',
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+
+        // Recurring transaction templates
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS recurring_transactions (
+            recurringId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            ledgerId INTEGER NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('expense','income')),
+            amount REAL NOT NULL,
+            category TEXT NOT NULL,
+            subcategory TEXT NOT NULL,
+            paymentMethod TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            dayOfMonth INTEGER DEFAULT 1,
+            nextDate TEXT DEFAULT '',
+            isActive INTEGER DEFAULT 1,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (userId) REFERENCES users(userId),
+            FOREIGN KEY (ledgerId) REFERENCES ledgers(ledgerId)
+          )
+        `);
+
+        // Bill reminders
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS bill_reminders (
+            reminderId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            amount REAL DEFAULT 0,
+            dueDay INTEGER NOT NULL,
+            note TEXT DEFAULT '',
+            isActive INTEGER DEFAULT 1,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+
+        // Split bills
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS split_bills (
+            splitId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            totalAmount REAL NOT NULL,
+            note TEXT DEFAULT '',
+            isSettled INTEGER DEFAULT 0,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS split_participants (
+            participantId INTEGER PRIMARY KEY AUTOINCREMENT,
+            splitId INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            amount REAL NOT NULL,
+            isPaid INTEGER DEFAULT 0,
+            FOREIGN KEY (splitId) REFERENCES split_bills(splitId) ON DELETE CASCADE
+          )
+        `);
+
+        // Safe column migrations (silently ignore "column already exists")
+        this.db.run(`ALTER TABLE transactions ADD COLUMN tags TEXT DEFAULT ''`, () => {});
+        this.db.run(`ALTER TABLE transactions ADD COLUMN currency TEXT DEFAULT 'TWD'`, () => {});
+
         // Create index for faster queries
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_ledger ON transactions(ledgerId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_ledgers_user ON ledgers(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_payment_methods_user ON payment_methods(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_categories_user_type ON user_categories(userId, type)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_budgets_user ON budgets(userId, year, month)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_goals_user ON goals(userId)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(userId)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring_transactions(userId)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_reminders_user ON bill_reminders(userId)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_splits_user ON split_bills(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_subcategories_category ON user_subcategories(categoryId)`, (err) => {
           if (err) reject(err);
           else resolve();
