@@ -1,4 +1,5 @@
 import sqlite3 from 'sqlite3';
+import fs from 'fs';
 import path from 'path';
 import { config } from '../config';
 
@@ -6,6 +7,11 @@ export class Database {
   private db: sqlite3.Database;
 
   constructor() {
+    const directory = path.dirname(config.database.path);
+    if (directory && directory !== '.') {
+      fs.mkdirSync(directory, { recursive: true });
+    }
+
     this.db = new sqlite3.Database(config.database.path);
   }
 
