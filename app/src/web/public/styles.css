@@ -599,6 +599,84 @@ tbody tr:hover td {
 /* ── Ledger stat row ─────────────────────────────────────────────────────── */
 .ledger-stat-row strong { font-weight: 600; }
 
+/* ── Ledger donut chart ──────────────────────────────────────────────────── */
+.ledger-donut-layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.ledger-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ledger-legend-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ledger-legend-item:hover {
+  background: var(--primary-light);
+}
+.ledger-legend-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.ledger-legend-name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ledger-legend-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.ledger-legend-sub {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ledger-legend-balance {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.donut-center-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+.donut-center-value {
+  display: block;
+  font-size: var(--text-md);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+}
+@media (max-width: 560px) {
+  .ledger-donut-layout {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+}
+
 /* ── Budget ──────────────────────────────────────────────────────────────── */
 .month-nav {
   display: flex;
