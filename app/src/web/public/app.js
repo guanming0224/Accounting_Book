@@ -2853,6 +2853,25 @@ document.querySelector('#transaction-filter').addEventListener('submit', loadTra
 document.querySelector('#advanced-search-form').addEventListener('submit', runAdvancedSearch);
 
 // CSV Import
+document.getElementById('download-csv-template-btn').addEventListener('click', () => {
+  const rows = [
+    'type,amount,category,subcategory,paymentMethod,description',
+    'expense,150,食,早餐,現金,7-11 早餐',
+    'expense,1200,住,水費,信用卡,台水 6 月水費',
+    'expense,350,行,捷運,悠遊卡,上班通勤',
+    'expense,500,樂,電影,信用卡,週末看電影',
+    'income,50000,薪資,月薪,匯款,6 月薪資',
+    'income,2000,被動收入,利息,匯款,定存利息',
+  ];
+  const blob = new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '匯入範本.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
 document.querySelector('#import-csv-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.currentTarget;

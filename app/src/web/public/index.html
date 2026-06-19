@@ -200,7 +200,13 @@
 
         <section class="panel">
           <h2>匯入 CSV</h2>
-          <p class="text-muted" style="margin-bottom:12px;font-size:13px;">CSV 格式：type,amount,category,subcategory,paymentMethod,description（第一列為標題列，將被略過）</p>
+          <p class="text-muted" style="margin-bottom:12px;font-size:13px;">
+            欄位順序：<code>type, amount, category, subcategory, paymentMethod, description</code><br>
+            type 填 <code>expense</code>（支出）或 <code>income</code>（進帳），第一列標題列會自動略過。
+          </p>
+          <div style="margin-bottom:10px;">
+            <button type="button" id="download-csv-template-btn" class="secondary">⬇ 下載 CSV 範本</button>
+          </div>
           <form id="import-csv-form" class="toolbar" style="flex-wrap:wrap;">
             <select id="import-ledger-select" name="ledgerId"></select>
             <input type="file" name="csvFile" accept=".csv" />
