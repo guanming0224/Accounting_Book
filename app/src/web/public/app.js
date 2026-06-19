@@ -10,6 +10,38 @@ const state = {
   budgetMonth: new Date().getMonth() + 1,
 };
 
+// ── Chart.js instance registry ────────────────────────────────────────────
+const _charts = {};
+function mkChart(id, config) {
+  if (_charts[id]) { _charts[id].destroy(); delete _charts[id]; }
+  const canvas = document.getElementById(id);
+  if (!canvas) return null;
+  _charts[id] = new Chart(canvas, config);
+  return _charts[id];
+}
+
+// Dynamic chart colors that work in dark and light mode
+function chartPalette(n) {
+  const COLORS = [
+    '#38bdf8','#f59e0b','#10b981','#f43f5e','#a78bfa',
+    '#fb923c','#34d399','#60a5fa','#e879f9','#fbbf24',
+    '#4ade80','#f87171','#818cf8','#2dd4bf','#c084fc',
+  ];
+  return Array.from({ length: n }, (_, i) => COLORS[i % COLORS.length]);
+}
+
+function isDark() {
+  return document.documentElement.dataset.theme === 'dark';
+}
+
+function chartDefaults() {
+  const dark = isDark();
+  return {
+    textColor: dark ? '#94a3b8' : '#64748b',
+    gridColor: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+  };
+}
+
 // ── Auth token ────────────────────────────────────────────────────────────
 let authToken = localStorage.getItem('authToken') || '';
 
@@ -97,6 +129,51 @@ async function loadContext() {
   document.querySelector('#user-label').textContent = `userId: ${context.userId}`;
 }
 
+// ── Dashboard sparkline chart ─────────────────────────────────────────────
+function renderDashboardSparkline(trendData) {
+  if (!trendData || !trendData.length) return;
+  const { textColor, gridColor } = chartDefaults();
+  const labels = trendData.map(d => d.label);
+  mkChart('dashboard-sparkline', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '進帳',
+          data: trendData.map(d => d.totalIncome),
+          backgroundColor: '#10b98166',
+          borderColor: '#10b981',
+          borderWidth: 1.5,
+          borderRadius: 4,
+        },
+        {
+          label: '支出',
+          data: trendData.map(d => d.totalExpense),
+          backgroundColor: '#f43f5e66',
+          borderColor: '#f43f5e',
+          borderWidth: 1.5,
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: textColor, font: { size: 12 } } },
+        tooltip: { mode: 'index' },
+      },
+      scales: {
+        x: { ticks: { color: textColor, font: { size: 11 } }, grid: { color: gridColor } },
+        y: {
+          ticks: { color: textColor, font: { size: 11 }, callback: v => 'NT$' + Math.round(v).toLocaleString() },
+          grid: { color: gridColor },
+        },
+      },
+    },
+  });
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────
 async function loadDashboard() {
   const dashboard = await api('/api/dashboard');
@@ -109,6 +186,8 @@ async function loadDashboard() {
   renderLedgerExpenseChart(dashboard.ledgerStats || []);
   renderDashboardAlerts(dashboard.alerts);
   loadInsights();
+  // Fetch and render dashboard sparkline
+  apiFetch('/api/reports/trend?months=6').then(r => r.json()).then(renderDashboardSparkline).catch(() => {});
   document.querySelector('#dashboard-ledgers').innerHTML =
     state.ledgers
       .map(
@@ -395,6 +474,7 @@ async function loadAccounts() {
   try {
     const data = await api('/api/accounts');
     renderAccounts(data);
+    renderAccountsDonutChart(data.accounts || []);
   } catch (err) {
     document.querySelector('#accounts-list').innerHTML = '<div class="row">尚無帳戶資料</div>';
   }
@@ -444,6 +524,7 @@ async function loadBudgets() {
   renderBudgetCategorySelect();
   const budgets = await api(`/api/budgets?year=${state.budgetYear}&month=${state.budgetMonth}`);
   renderBudgets(budgets);
+  renderBudgetChart(budgets);
 }
 
 function renderBudgets(budgets) {
@@ -635,10 +716,13 @@ async function loadReports() {
   if (trendData.status === 'fulfilled') {
     renderReportsMetrics(trendData.value);
     renderTrendChart(trendData.value);
+    renderTrendLineChart(trendData.value);
   }
   if (categoryTrendData.status === 'fulfilled') {
     renderCategoryTrend(categoryTrendData.value);
+    renderCategoryStackedChart(categoryTrendData.value);
   }
+  loadDowChart();
 }
 
 function renderReportsMetrics(data) {
@@ -650,6 +734,261 @@ function renderReportsMetrics(data) {
   document.querySelector('#rpt-max-expense').textContent = formatMoney(max(expenses));
   document.querySelector('#rpt-avg-income').textContent = formatMoney(avg(incomes));
   document.querySelector('#rpt-max-income').textContent = formatMoney(max(incomes));
+}
+
+function renderTrendLineChart(data) {
+  if (!data || !data.length) return;
+  const { textColor, gridColor } = chartDefaults();
+  const labels = data.map(d => d.label);
+  mkChart('trend-line-chart', {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '進帳',
+          data: data.map(d => d.totalIncome),
+          borderColor: '#10b981',
+          backgroundColor: '#10b98122',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+        },
+        {
+          label: '支出',
+          data: data.map(d => d.totalExpense),
+          borderColor: '#f43f5e',
+          backgroundColor: '#f43f5e22',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+        },
+        {
+          label: '結餘',
+          data: data.map(d => d.balance),
+          borderColor: '#38bdf8',
+          backgroundColor: 'transparent',
+          borderDash: [5, 3],
+          tension: 0.4,
+          pointRadius: 3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: textColor } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: NT$${Math.round(ctx.raw).toLocaleString()}`,
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color: textColor, font: { size: 11 } }, grid: { color: gridColor } },
+        y: {
+          ticks: { color: textColor, callback: v => 'NT$' + Math.round(v / 1000) + 'K' },
+          grid: { color: gridColor },
+        },
+      },
+    },
+  });
+}
+
+function renderCategoryStackedChart(data) {
+  if (!data || !data.length) return;
+  const { textColor, gridColor } = chartDefaults();
+  const labels = data.map(d => d.label);
+
+  // Collect all unique category names
+  const catSet = new Set();
+  data.forEach(d => d.categories.forEach(c => catSet.add(c.name)));
+  const cats = [...catSet];
+  const colors = chartPalette(cats.length);
+
+  const datasets = cats.map((cat, i) => ({
+    label: cat,
+    data: data.map(d => {
+      const found = d.categories.find(c => c.name === cat);
+      return found ? found.total : 0;
+    }),
+    backgroundColor: colors[i] + 'cc',
+    borderColor: colors[i],
+    borderWidth: 1,
+    borderRadius: 3,
+  }));
+
+  mkChart('category-stacked-chart', {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: textColor, font: { size: 11 } }, position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: NT$${Math.round(ctx.raw).toLocaleString()}`,
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: textColor, font: { size: 11 } }, grid: { color: gridColor } },
+        y: {
+          stacked: true,
+          ticks: { color: textColor, callback: v => 'NT$' + Math.round(v / 1000) + 'K' },
+          grid: { color: gridColor },
+        },
+      },
+    },
+  });
+}
+
+async function loadDowChart() {
+  const canvas = document.getElementById('dow-chart');
+  if (!canvas) return;
+  try {
+    const resp = await apiFetch('/api/reports/day-of-week?months=3');
+    const data = await resp.json();
+    const { textColor, gridColor } = chartDefaults();
+    const maxTotal = Math.max(...data.map(d => d.total), 1);
+    mkChart('dow-chart', {
+      type: 'bar',
+      data: {
+        labels: data.map(d => `週${d.name}`),
+        datasets: [{
+          label: '支出金額',
+          data: data.map(d => d.total),
+          backgroundColor: data.map(d => {
+            const intensity = d.total / maxTotal;
+            return `rgba(248, 113, 113, ${0.3 + intensity * 0.7})`;
+          }),
+          borderColor: '#f87171',
+          borderWidth: 1.5,
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => `支出: NT$${Math.round(ctx.raw).toLocaleString()} (${data[ctx.dataIndex].count} 筆)`,
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { color: textColor }, grid: { color: gridColor } },
+          y: {
+            ticks: { color: textColor, callback: v => 'NT$' + Math.round(v).toLocaleString() },
+            grid: { color: gridColor },
+          },
+        },
+      },
+    });
+  } catch { /* no data yet */ }
+}
+
+function renderBudgetChart(budgets) {
+  const canvas = document.getElementById('budget-bar-chart');
+  if (!canvas || !budgets.length) return;
+  const { textColor, gridColor } = chartDefaults();
+  const labels = budgets.map(b => b.category);
+  mkChart('budget-bar-chart', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '預算',
+          data: budgets.map(b => b.amount),
+          backgroundColor: '#38bdf844',
+          borderColor: '#38bdf8',
+          borderWidth: 2,
+          borderRadius: 4,
+        },
+        {
+          label: '實際支出',
+          data: budgets.map(b => b.actual),
+          backgroundColor: budgets.map(b =>
+            b.actual > b.amount ? '#f43f5ecc' : '#10b981cc'
+          ),
+          borderColor: budgets.map(b => b.actual > b.amount ? '#f43f5e' : '#10b981'),
+          borderWidth: 1.5,
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      indexAxis: 'y',
+      plugins: {
+        legend: { labels: { color: textColor } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: NT$${Math.round(ctx.raw).toLocaleString()}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: textColor, callback: v => 'NT$' + Math.round(v).toLocaleString() },
+          grid: { color: gridColor },
+        },
+        y: { ticks: { color: textColor }, grid: { color: gridColor } },
+      },
+    },
+  });
+}
+
+function renderAccountsDonutChart(accounts) {
+  const canvas = document.getElementById('accounts-donut-chart');
+  if (!canvas || !accounts.length) return;
+  const { textColor } = chartDefaults();
+
+  // Group by type
+  const typeMap = new Map();
+  const typeLabels = { bank: '銀行', cash: '現金', credit: '信用卡', investment: '投資', other: '其他' };
+  for (const a of accounts) {
+    const type = a.type || 'other';
+    typeMap.set(type, (typeMap.get(type) || 0) + Math.abs(a.balance));
+  }
+  const entries = [...typeMap.entries()].filter(([, v]) => v > 0);
+  if (!entries.length) return;
+
+  const labels = entries.map(([k]) => typeLabels[k] || k);
+  const values = entries.map(([, v]) => v);
+  const colors = chartPalette(entries.length);
+
+  mkChart('accounts-donut-chart', {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors.map(c => c + 'cc'),
+        borderColor: colors,
+        borderWidth: 2,
+        hoverOffset: 8,
+      }],
+    },
+    options: {
+      responsive: true,
+      cutout: '60%',
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: textColor, padding: 12, font: { size: 12 } },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.label}: NT$${Math.round(ctx.raw).toLocaleString()}`,
+          },
+        },
+      },
+    },
+  });
 }
 
 function renderTrendChart(data) {

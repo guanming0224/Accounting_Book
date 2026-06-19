@@ -7,6 +7,7 @@
     <link rel="manifest" href="/manifest.json" />
     <title>Accounting Book</title>
     <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   </head>
   <body>
     <aside class="sidebar">
@@ -81,6 +82,10 @@
         <section class="panel">
           <h2>各帳本本月支出</h2>
           <div id="ledger-expense-chart" class="bar-list"></div>
+        </section>
+        <section class="panel" id="dashboard-trend-panel">
+          <div class="section-header"><h2>近 6 個月趨勢</h2></div>
+          <canvas id="dashboard-sparkline" height="120"></canvas>
         </section>
       </section>
 
@@ -241,6 +246,10 @@
           </form>
           <div id="accounts-list" class="list"></div>
         </section>
+        <section class="panel" style="margin-top:16px">
+          <h2>帳戶類型分布</h2>
+          <canvas id="accounts-donut-chart" height="200"></canvas>
+        </section>
         <section class="panel">
           <h2>跨帳戶轉帳</h2>
           <form id="transfer-form" class="toolbar" style="flex-wrap:wrap;">
@@ -287,6 +296,10 @@
             </div>
           </div>
           <div id="budget-list" class="list"></div>
+          <section class="panel" style="margin-top:16px">
+            <h2>預算執行狀況</h2>
+            <canvas id="budget-bar-chart" height="200"></canvas>
+          </section>
           <form id="budget-add-form" class="inline-form" style="margin-top:14px;">
             <select id="budget-category-select" name="category"></select>
             <input type="number" name="amount" placeholder="預算金額" min="1" step="1" style="width:130px;" />
@@ -400,6 +413,7 @@
             </div>
           </div>
           <div id="trend-chart"></div>
+          <canvas id="trend-line-chart" height="200" style="margin-top:16px"></canvas>
           <div class="trend-legend">
             <span><span class="swatch" style="background:var(--success)"></span>進帳</span>
             <span><span class="swatch" style="background:var(--danger)"></span>支出</span>
@@ -408,6 +422,12 @@
         <section class="panel">
           <h2>各類別支出趨勢</h2>
           <div id="category-trend-chart"></div>
+          <canvas id="category-stacked-chart" height="220" style="margin-top:16px"></canvas>
+        </section>
+        <section class="panel">
+          <h2>每週支出分析</h2>
+          <p class="text-muted" style="font-size:12px;margin-bottom:12px">最近 3 個月，週幾支出最多？</p>
+          <canvas id="dow-chart" height="180"></canvas>
         </section>
       </section>
 
