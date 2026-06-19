@@ -1624,6 +1624,63 @@ async function startWebServer() {
     });
   }));
 
+  // ── Global transaction search ─────────────────────────────────────────────
+  app.get('/api/search', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const q = String(req.query.q || '').trim();
+    if (q.length < 1) { res.json([]); return; }
+    const like = `%${q}%`;
+    const rows = await db.all<any>(
+      `SELECT t.*, l.name as ledgerName FROM transactions t
+       INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+       WHERE l.userId = ? AND COALESCE(l.isArchived, 0) = 0
+         AND (t.description LIKE ? OR t.category LIKE ? OR t.subcategory LIKE ?
+              OR t.paymentMethod LIKE ? OR CAST(t.amount AS TEXT) LIKE ?)
+       ORDER BY t.createdAt DESC LIMIT 60`,
+      [userId, like, like, like, like, like]
+    );
+    res.json(rows);
+  }));
+
+  // ── Calendar (daily aggregates for a given month) ─────────────────────────
+  app.get('/api/calendar', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { year: todayYear, month: todayMonth } = getTaipeiTodayParts();
+    const y = Math.max(2000, Math.min(2100, Number(req.query.year || todayYear)));
+    const m = Math.max(1, Math.min(12, Number(req.query.month || todayMonth)));
+    const { startDate, endDate } = monthRangeForYearMonth(y, m);
+
+    const rows = await db.all<{ txDate: string; type: string; total: number; cnt: number }>(
+      `SELECT
+         strftime('%Y-%m-%d', datetime(t.createdAt, '+8 hours')) as txDate,
+         t.type,
+         SUM(t.amount) as total,
+         COUNT(*) as cnt
+       FROM transactions t
+       INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+       WHERE l.userId = ? AND COALESCE(l.isArchived, 0) = 0
+         AND t.createdAt >= ? AND t.createdAt < ?
+       GROUP BY txDate, t.type
+       ORDER BY txDate`,
+      [userId, startDate, endDate]
+    );
+
+    const dateMap = new Map<string, { date: string; expense: number; income: number; count: number }>();
+    for (const row of rows) {
+      if (!dateMap.has(row.txDate)) {
+        dateMap.set(row.txDate, { date: row.txDate, expense: 0, income: 0, count: 0 });
+      }
+      const entry = dateMap.get(row.txDate)!;
+      if (row.type === 'expense') entry.expense += row.total;
+      else if (row.type === 'income') entry.income += row.total;
+      entry.count += row.cnt;
+    }
+
+    res.json({ year: y, month: m, days: [...dateMap.values()] });
+  }));
+
   const publicPath = path.resolve(process.cwd(), 'app/src/web/public');
   app.use(express.static(publicPath));
   app.get(/.*/, (_req, res) => res.sendFile(path.join(publicPath, 'index.html')));
