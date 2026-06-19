@@ -1351,6 +1351,34 @@ async function startWebServer() {
     res.json(result);
   }));
 
+  // ── Custom date range report ──────────────────────────────────────────────
+  app.get('/api/reports/custom', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { startDate, endDate } = parseDateRange(req);
+    const ledgers = await ledgerModule.getUserLedgers(userId);
+    let totalIncome = 0, totalExpense = 0;
+    const categoryMap = new Map<string, number>();
+    const incomeMap = new Map<string, number>();
+    for (const ledger of ledgers) {
+      const stats = await transactionModule.getLedgerStatsByDateRange(ledger.ledgerId, startDate, endDate);
+      totalIncome += stats.totalIncome || 0;
+      totalExpense += stats.totalExpense || 0;
+      const cats = await transactionModule.getCategorySummaryByDateRange(ledger.ledgerId, startDate, endDate);
+      for (const c of cats) {
+        if (c.type === 'expense') categoryMap.set(c.category, (categoryMap.get(c.category) || 0) + c.total);
+        else incomeMap.set(c.category, (incomeMap.get(c.category) || 0) + c.total);
+      }
+    }
+    res.json({
+      totalIncome: Math.round(totalIncome),
+      totalExpense: Math.round(totalExpense),
+      balance: Math.round(totalIncome - totalExpense),
+      expenseCategories: [...categoryMap.entries()].map(([category, total]) => ({ category, total: Math.round(total) })).sort((a, b) => b.total - a.total),
+      incomeCategories: [...incomeMap.entries()].map(([category, total]) => ({ category, total: Math.round(total) })).sort((a, b) => b.total - a.total),
+    });
+  }));
+
   // ── Utility Meters ────────────────────────────────────────────────────────
   app.get('/api/utility/meters', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;

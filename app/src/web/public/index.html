@@ -458,7 +458,43 @@
           <p class="text-muted" style="font-size:12px;margin-bottom:12px">最近 3 個月，週幾支出最多？</p>
           <canvas id="dow-chart" height="180"></canvas>
         </section>
+        <!-- Custom date range -->
+        <section class="panel" id="custom-range-panel">
+          <div class="section-header"><h2>自訂區間報表</h2></div>
+          <div class="date-range-bar">
+            <input type="date" id="custom-start" />
+            <span>～</span>
+            <input type="date" id="custom-end" />
+            <button id="custom-range-btn" class="primary">查詢</button>
+          </div>
+          <div id="custom-range-result" hidden>
+            <div class="custom-range-summary">
+              <div class="metric"><span>進帳</span><strong id="cr-income" class="income-color">0</strong></div>
+              <div class="metric"><span>支出</span><strong id="cr-expense" class="expense-color">0</strong></div>
+              <div class="metric"><span>結餘</span><strong id="cr-balance">0</strong></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px">
+              <div>
+                <h3 style="font-size:13px;margin-bottom:8px;color:var(--text-muted)">支出分類</h3>
+                <div id="cr-expense-cats" class="cat-breakdown"></div>
+              </div>
+              <div>
+                <h3 style="font-size:13px;margin-bottom:8px;color:var(--text-muted)">收入分類</h3>
+                <div id="cr-income-cats" class="cat-breakdown"></div>
+              </div>
+            </div>
+          </div>
+        </section>
       </section>
+
+      <!-- ── 列印專用區（screen: hidden, print: visible） ───────────────────── -->
+      <div id="print-section" class="print-only">
+        <h1>財務報表</h1>
+        <p id="print-date-range"></p>
+        <table id="print-summary-table"></table>
+        <h2>支出分類明細</h2>
+        <table id="print-cat-table"></table>
+      </div>
 
       <!-- ── 分帳 ─────────────────────────────────────────────────────────── -->
       <section id="splits-view" class="view">

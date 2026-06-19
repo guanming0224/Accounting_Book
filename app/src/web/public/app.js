@@ -570,24 +570,39 @@ const accountTypeLabels = {
   other: '其他',
 };
 
+let _cachedExchangeRates = null;
+
+async function getExchangeRates() {
+  if (_cachedExchangeRates) return _cachedExchangeRates;
+  try {
+    const resp = await apiFetch('/api/exchange-rates');
+    const data = await resp.json();
+    _cachedExchangeRates = data.rates || {};
+    return _cachedExchangeRates;
+  } catch { return {}; }
+}
+
 async function loadAccounts() {
   try {
-    const data = await api('/api/accounts');
-    renderAccounts(data);
+    const [data, rates] = await Promise.all([
+      api('/api/accounts'),
+      getExchangeRates(),
+    ]);
+    renderAccounts(data, rates);
     renderAccountsDonutChart(data.accounts || []);
   } catch (err) {
     document.querySelector('#accounts-list').innerHTML = '<div class="row">尚無帳戶資料</div>';
   }
 }
 
-function renderAccounts(data) {
+function renderAccounts(data, rates) {
   const accounts = data.accounts || [];
   document.querySelector('#account-total-assets').textContent = formatMoney(data.totalAssets);
   document.querySelector('#account-total-liabilities').textContent = formatMoney(data.totalLiabilities);
   document.querySelector('#account-net-worth').textContent = formatMoney(data.netWorth);
   document.querySelector('#account-count').textContent = accounts.length;
   document.querySelector('#accounts-list').innerHTML =
-    accounts.map(renderAccount).join('') || '<div class="row">尚無帳戶</div>';
+    accounts.map(a => renderAccount(a, rates)).join('') || '<div class="row">尚無帳戶</div>';
 
   const fromSel = document.querySelector('#transfer-from');
   const toSel = document.querySelector('#transfer-to');
@@ -598,13 +613,19 @@ function renderAccounts(data) {
   toSel.innerHTML = opts;
 }
 
-function renderAccount(a) {
+function renderAccount(a, rates) {
   const typeLabel = accountTypeLabels[a.type] || a.type;
+  const currency = a.currency || 'TWD';
+  let twdNote = '';
+  if (currency !== 'TWD' && rates && rates[currency]) {
+    const twd = Math.round(a.balance * rates[currency]);
+    twdNote = ` <span class="twd-equiv">≈ NT$${twd.toLocaleString()}</span>`;
+  }
   return `
     <div class="row">
       <div class="row-main">
         <div class="row-title">${escapeHtml(a.name)}<span class="account-badge">${escapeHtml(typeLabel)}</span></div>
-        <div class="row-meta">${formatMoney(a.balance)} ${escapeHtml(a.currency || 'TWD')}</div>
+        <div class="row-meta">${formatMoney(a.balance)} ${escapeHtml(currency)}${twdNote}</div>
       </div>
       <div class="actions">
         <button class="secondary" data-account-edit="${a.accountId}">改名</button>
@@ -807,6 +828,60 @@ function renderReminder(r) {
 }
 
 // ── Reports ───────────────────────────────────────────────────────────────
+async function loadCustomReport() {
+  const start = document.getElementById('custom-start')?.value;
+  const end = document.getElementById('custom-end')?.value;
+  if (!start || !end) { showStatus('請選擇開始和結束日期', true); return; }
+  if (start > end) { showStatus('開始日期不能晚於結束日期', true); return; }
+  try {
+    const data = await api(`/api/reports/custom?start=${start}&end=${end}`);
+    const result = document.getElementById('custom-range-result');
+    document.getElementById('cr-income').textContent = formatMoney(data.totalIncome);
+    document.getElementById('cr-expense').textContent = formatMoney(data.totalExpense);
+    const balEl = document.getElementById('cr-balance');
+    balEl.textContent = formatMoney(data.balance);
+    balEl.className = data.balance >= 0 ? 'income-color' : 'expense-color';
+
+    const renderCats = (cats, containerId) => {
+      const total = cats.reduce((s, c) => s + c.total, 0);
+      document.getElementById(containerId).innerHTML = cats.length
+        ? cats.map(c => {
+            const pct = total > 0 ? Math.round(c.total / total * 100) : 0;
+            return `<div class="cat-row"><span class="cat-name">${escapeHtml(c.category)}</span><div class="cat-bar-wrap"><div class="cat-bar" style="width:${pct}%"></div></div><span class="cat-amount">${formatMoney(c.total)}</span></div>`;
+          }).join('')
+        : '<div class="text-muted" style="font-size:12px">無資料</div>';
+    };
+    renderCats(data.expenseCategories || [], 'cr-expense-cats');
+    renderCats(data.incomeCategories || [], 'cr-income-cats');
+    result.hidden = false;
+
+    // Populate print section
+    document.getElementById('print-date-range').textContent = `期間：${start} ～ ${end}`;
+    document.getElementById('print-summary-table').innerHTML =
+      `<tr><th>進帳</th><th>支出</th><th>結餘</th></tr>
+       <tr><td>${formatMoney(data.totalIncome)}</td><td>${formatMoney(data.totalExpense)}</td><td>${formatMoney(data.balance)}</td></tr>`;
+    document.getElementById('print-cat-table').innerHTML =
+      `<tr><th>類別</th><th>金額</th></tr>` +
+      (data.expenseCategories || []).map(c => `<tr><td>${escapeHtml(c.category)}</td><td>${formatMoney(c.total)}</td></tr>`).join('');
+  } catch (err) {
+    showStatus(err.message || '查詢失敗', true);
+  }
+}
+
+async function preparePrintReport() {
+  const startEl = document.getElementById('custom-start');
+  const endEl = document.getElementById('custom-end');
+  if (startEl?.value && endEl?.value && !document.getElementById('custom-range-result')?.hidden) return;
+  // Default: print current month
+  const now = new Date();
+  const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0');
+  const start = `${y}-${m}-01`;
+  const end = `${y}-${m}-${new Date(y, now.getMonth() + 1, 0).getDate().toString().padStart(2, '0')}`;
+  if (startEl) startEl.value = start;
+  if (endEl) endEl.value = end;
+  await loadCustomReport();
+}
+
 async function loadReports() {
   const months = Number(document.querySelector('#trend-months')?.value || 6);
   const [trendData, categoryTrendData] = await Promise.allSettled([
@@ -2106,7 +2181,11 @@ document.addEventListener('click', async (event) => {
       exportCsv();
       return;
     } else if (target.id === 'print-report-btn') {
+      await preparePrintReport();
       window.print();
+      return;
+    } else if (target.id === 'custom-range-btn') {
+      await loadCustomReport();
       return;
     } else if (target.id === 'add-participant-btn') {
       const row = document.createElement('div');
