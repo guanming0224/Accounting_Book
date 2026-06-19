@@ -315,21 +315,80 @@ function renderDashboardSparkline(trendData) {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
 async function loadDashboard() {
-  const dashboard = await api('/api/dashboard');
+  const [dashboard, accountsData] = await Promise.all([
+    api('/api/dashboard'),
+    api('/api/accounts').catch(() => null),
+  ]);
   document.querySelector('#metric-income').textContent = formatMoney(dashboard.totalIncome);
   document.querySelector('#metric-expense').textContent = formatMoney(dashboard.totalExpense);
   document.querySelector('#metric-balance').textContent = formatMoney(dashboard.balance);
   document.querySelector('#metric-count').textContent = dashboard.transactionCount || 0;
+  renderDashboardAssetsDonut(accountsData);
   renderIncomeExpenseChart(dashboard);
   renderExpenseCategoryChart(dashboard.expenseCategories || []);
   renderLedgerExpenseChart(dashboard.ledgerStats || []);
   renderDashboardAlerts(dashboard.alerts);
   loadInsights();
-  // Fetch and render dashboard sparkline
   apiFetch('/api/reports/trend?months=6').then(r => r.json()).then(renderDashboardSparkline).catch(() => {});
   loadStreak().catch(() => {});
   loadForecast().catch(() => {});
   loadNetWorthChart().catch(() => {});
+}
+
+function renderDashboardAssetsDonut(data) {
+  const el = document.getElementById('dashboard-assets-donut');
+  if (!el) return;
+
+  if (!data || !data.accounts || !data.accounts.length) {
+    el.innerHTML = '<div class="row-meta" style="padding:12px 0;text-align:center">尚無帳戶資料</div>';
+    return;
+  }
+
+  const typeLabels = { bank: '銀行', cash: '現金', credit: '信用卡', investment: '投資', other: '其他' };
+  const typeMap = new Map();
+  for (const a of data.accounts) {
+    if (a.balance <= 0) continue;
+    const t = a.type || 'other';
+    typeMap.set(t, (typeMap.get(t) || 0) + a.balance);
+  }
+
+  const entries = [...typeMap.entries()].filter(([, v]) => v > 0);
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  const netWorth = data.netWorth || 0;
+  const netColor = netWorth >= 0 ? 'var(--success)' : 'var(--danger)';
+
+  let bg;
+  if (!entries.length || total <= 0) {
+    bg = 'conic-gradient(var(--surface-mid) 0deg 360deg)';
+  } else {
+    let deg = 0;
+    const parts = entries.map(([, v], i) => {
+      const span = (v / total) * 360;
+      const color = chartColors[i % chartColors.length];
+      const part = `${color} ${deg.toFixed(1)}deg ${(deg + span).toFixed(1)}deg`;
+      deg += span;
+      return part;
+    });
+    bg = `conic-gradient(${parts.join(', ')})`;
+  }
+
+  const legend = entries.map(([k, v], i) => `
+    <div class="assets-legend-row">
+      <span class="swatch" style="background:${chartColors[i % chartColors.length]}"></span>
+      <span class="assets-legend-label">${typeLabels[k] || k}</span>
+      <span class="assets-legend-value">${formatMoney(v)}</span>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div class="assets-donut-wrap">
+      <div class="donut donut-sm" style="background:${bg}">
+        <div class="donut-center">
+          <span class="donut-center-label">淨資產</span>
+          <strong class="donut-center-value" style="color:${netColor}">${formatMoney(netWorth)}</strong>
+        </div>
+      </div>
+      <div class="assets-legend">${legend || '<span class="row-meta">暫無資產</span>'}</div>
+    </div>`;
 }
 
 async function loadStreak() {

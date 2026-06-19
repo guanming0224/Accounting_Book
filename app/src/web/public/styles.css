@@ -190,9 +190,52 @@ h2 {
   gap: 16px;
 }
 
+/* ── Dashboard top: asset donut (left) + metrics (right) ────────────────── */
+.dashboard-top {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.dashboard-assets-panel {
+  padding: 16px;
+}
+.assets-donut-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.assets-legend {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.assets-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-xs);
+}
+.assets-legend-label {
+  flex: 1;
+  color: var(--text);
+}
+.assets-legend-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -474,6 +517,9 @@ tbody tr:hover td {
     text-align: center;
   }
 
+  .dashboard-top {
+    grid-template-columns: 1fr;
+  }
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -786,6 +832,10 @@ tbody tr:hover td {
   .topbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .dashboard-top {
+    grid-template-columns: 1fr;
   }
 
   .metrics {

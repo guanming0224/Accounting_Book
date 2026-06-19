@@ -60,11 +60,17 @@
 
       <!-- ── 總覽 ─────────────────────────────────────────────────────────── -->
       <section id="dashboard-view" class="view active">
-        <div class="metrics">
-          <div class="metric"><span>本月進帳</span><strong id="metric-income">0</strong></div>
-          <div class="metric"><span>本月支出</span><strong id="metric-expense">0</strong></div>
-          <div class="metric"><span>本月結餘</span><strong id="metric-balance">0</strong></div>
-          <div class="metric"><span>交易筆數</span><strong id="metric-count">0</strong></div>
+        <div class="dashboard-top">
+          <section class="panel dashboard-assets-panel">
+            <h2>總資產</h2>
+            <div id="dashboard-assets-donut"></div>
+          </section>
+          <div class="metrics">
+            <div class="metric"><span>本月進帳</span><strong id="metric-income">0</strong></div>
+            <div class="metric"><span>本月支出</span><strong id="metric-expense">0</strong></div>
+            <div class="metric"><span>本月結餘</span><strong id="metric-balance">0</strong></div>
+            <div class="metric"><span>交易筆數</span><strong id="metric-count">0</strong></div>
+          </div>
         </div>
         <!-- Streak + Forecast cards -->
         <div class="dashboard-meta-row">
