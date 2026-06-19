@@ -617,9 +617,75 @@ async function loadTransactions(event) {
     '<tr><td colspan="9">這個區間沒有交易</td></tr>';
 }
 
+// ── Receipt photo ─────────────────────────────────────────────────────────
+let _pendingReceiptBase64 = null;
+
+function compressImageToBase64(file, maxPx = 1200, quality = 0.65) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxPx || height > maxPx) {
+        if (width > height) { height = Math.round(height * maxPx / width); width = maxPx; }
+        else { width = Math.round(width * maxPx / height); height = maxPx; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality).split(',')[1]);
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function clearReceiptPreview() {
+  _pendingReceiptBase64 = null;
+  const wrap = document.getElementById('receipt-preview-wrap');
+  if (wrap) wrap.hidden = true;
+  const btn = document.getElementById('receipt-upload-btn');
+  if (btn) btn.hidden = false;
+  const fileInput = document.getElementById('modal-receipt-file');
+  if (fileInput) fileInput.value = '';
+}
+
+function showReceiptPreview(base64) {
+  _pendingReceiptBase64 = base64;
+  const img = document.getElementById('receipt-preview-img');
+  if (img) img.src = `data:image/jpeg;base64,${base64}`;
+  const wrap = document.getElementById('receipt-preview-wrap');
+  if (wrap) wrap.hidden = false;
+  const btn = document.getElementById('receipt-upload-btn');
+  if (btn) btn.hidden = true;
+}
+
+function getReceiptTxIds() {
+  try { return new Set(JSON.parse(localStorage.getItem('receiptTxIds') || '[]')); } catch { return new Set(); }
+}
+
+function addReceiptTxId(id) {
+  const ids = getReceiptTxIds();
+  ids.add(id);
+  localStorage.setItem('receiptTxIds', JSON.stringify([...ids]));
+}
+
+async function showReceiptLightbox(txId) {
+  try {
+    const att = await api(`/api/transactions/${txId}/attachment`);
+    const overlay = document.createElement('div');
+    overlay.className = 'lightbox-overlay';
+    overlay.innerHTML = `<div class="lightbox-box"><img src="data:${att.mimeType};base64,${att.data}" class="lightbox-img" /><button class="lightbox-close icon-btn" onclick="this.closest('.lightbox-overlay').remove()">✕</button></div>`;
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  } catch { showStatus('無法載入收據', true); }
+}
+
 function renderTransactionRow(t) {
   const tags = t.tags ? t.tags.split(',').filter(Boolean) : [];
   const tagsHtml = tags.map((tag) => `<span class="tag" style="padding:2px 6px;font-size:11px;">${escapeHtml(tag.trim())}</span>`).join('');
+  const hasReceipt = getReceiptTxIds().has(t.transactionId);
   return `
     <tr>
       <td><input type="checkbox" class="tx-row-checkbox" data-tx-id="${t.transactionId}"></td>
@@ -630,7 +696,7 @@ function renderTransactionRow(t) {
       <td>${escapeHtml(t.paymentMethod || '')}</td>
       <td>${escapeHtml(t.currency || 'TWD')}</td>
       <td style="min-width:80px;">${tagsHtml}</td>
-      <td>${escapeHtml(t.description || '')}</td>
+      <td>${escapeHtml(t.description || '')}${hasReceipt ? ` <button class="receipt-view-btn icon-btn" data-receipt-tx="${t.transactionId}" title="查看收據">📷</button>` : ''}</td>
       <td>
         <div class="actions">
           <button class="secondary" data-tx-amount="${t.transactionId}">金額</button>
@@ -1036,6 +1102,75 @@ async function loadReports() {
     renderCategoryStackedChart(categoryTrendData.value);
   }
   loadDowChart();
+  loadAnnualReport().catch(() => {});
+}
+
+// ── Annual Report ─────────────────────────────────────────────────────────
+const annualState = { year: new Date().getFullYear() };
+
+async function loadAnnualReport() {
+  const { year } = annualState;
+  const labelEl = document.getElementById('annual-year-label');
+  if (labelEl) labelEl.textContent = `${year} 年`;
+  try {
+    const data = await api(`/api/reports/annual?year=${year}`);
+    renderAnnualStats(data);
+    renderAnnualChart(data);
+    renderAnnualCategories(data);
+  } catch { /* silently ignore if no data */ }
+}
+
+function renderAnnualStats(data) {
+  const el = document.getElementById('annual-stats');
+  if (!el) return;
+  const bm = data.bestMonth;
+  const wm = data.worstMonth;
+  el.innerHTML = `
+    <div class="annual-stat"><span>年度進帳</span><strong class="income-color">${formatMoney(data.totalIncome)}</strong></div>
+    <div class="annual-stat"><span>年度支出</span><strong class="expense-color">${formatMoney(data.totalExpense)}</strong></div>
+    <div class="annual-stat"><span>年度結餘</span><strong class="${data.netBalance >= 0 ? 'income-color' : 'expense-color'}">${formatMoney(data.netBalance)}</strong></div>
+    <div class="annual-stat"><span>最省月份</span><strong>${bm ? bm.month + ' 月 (' + formatMoney(bm.expense) + ')' : '—'}</strong></div>
+    <div class="annual-stat"><span>最花月份</span><strong>${wm ? wm.month + ' 月 (' + formatMoney(wm.expense) + ')' : '—'}</strong></div>
+  `;
+}
+
+function renderAnnualChart(data) {
+  const { textColor, gridColor } = chartDefaults();
+  const labels = data.months.map(m => m.month + '月');
+  mkChart('annual-bar-chart', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: '進帳', data: data.months.map(m => m.income), backgroundColor: '#10b98155', borderColor: '#10b981', borderWidth: 1.5, borderRadius: 4 },
+        { label: '支出', data: data.months.map(m => m.expense), backgroundColor: '#f43f5e55', borderColor: '#f43f5e', borderWidth: 1.5, borderRadius: 4 },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: textColor, font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: NT$${Math.round(ctx.raw).toLocaleString()}` } },
+      },
+      scales: {
+        x: { ticks: { color: textColor, font: { size: 10 } }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor, callback: v => 'NT$' + (v >= 1000 ? Math.round(v / 1000) + 'K' : Math.round(v)) }, grid: { color: gridColor } },
+      },
+    },
+  });
+}
+
+function renderAnnualCategories(data) {
+  const el = document.getElementById('annual-top-cats');
+  if (!el) return;
+  const cats = data.topCategories || [];
+  if (!cats.length) { el.innerHTML = '<div class="text-muted" style="font-size:12px">無支出資料</div>'; return; }
+  const max = cats[0]?.total || 1;
+  el.innerHTML = cats.map(c => {
+    const pct = Math.round(c.total / max * 100);
+    return `<div class="cat-row"><span class="cat-name">${escapeHtml(c.category)}</span><div class="cat-bar-wrap"><div class="cat-bar" style="width:${pct}%"></div></div><span class="cat-amount">${formatMoney(c.total)}</span></div>`;
+  }).join('');
 }
 
 function renderReportsMetrics(data) {
@@ -2127,6 +2262,7 @@ function openTxModal() {
 function closeTxModal() {
   document.querySelector('#tx-modal-overlay').hidden = true;
   document.querySelector('#tx-modal-form').reset();
+  clearReceiptPreview();
 }
 
 function updateModalCategories() {
@@ -2312,7 +2448,10 @@ document.addEventListener('click', async (event) => {
   }
 
   try {
-    if (target.id === 'add-tx-fab') {
+    if (target.dataset.receiptTx) {
+      showReceiptLightbox(Number(target.dataset.receiptTx));
+      return;
+    } else if (target.id === 'add-tx-fab') {
       openTxModal();
       return;
     } else if (target.id === 'tx-modal-cancel') {
@@ -2584,7 +2723,7 @@ document.querySelector('#tx-modal-form').addEventListener('submit', async (event
   if (!amount || amount <= 0) { showStatus('金額必須大於 0', true); return; }
   try {
     const tagsRaw = form.tags?.value?.trim() || '';
-    await api('/api/transactions', {
+    const newTx = await api('/api/transactions', {
       method: 'POST',
       body: JSON.stringify({
         ledgerId: Number(form.ledgerId.value),
@@ -2598,6 +2737,12 @@ document.querySelector('#tx-modal-form').addEventListener('submit', async (event
         tags: tagsRaw,
       }),
     });
+    if (_pendingReceiptBase64 && newTx?.transactionId) {
+      apiFetch(`/api/transactions/${newTx.transactionId}/attachment`, {
+        method: 'POST',
+        body: JSON.stringify({ data: _pendingReceiptBase64, mimeType: 'image/jpeg' }),
+      }).then(() => addReceiptTxId(newTx.transactionId)).catch(() => {});
+    }
     // Save merchant memory
     const desc = form.querySelector('[name="description"]')?.value?.trim() || '';
     const cat = form.querySelector('[name="category"]')?.value || document.getElementById('modal-category')?.value || '';
@@ -2936,6 +3081,20 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
   filter.start.value = toDateInput(monthStart);
   filter.end.value = toDateInput(today);
   updateBudgetMonthLabel();
+
+  // Annual report year navigation
+  document.getElementById('annual-prev-year')?.addEventListener('click', () => { annualState.year--; loadAnnualReport(); });
+  document.getElementById('annual-next-year')?.addEventListener('click', () => { annualState.year++; loadAnnualReport(); });
+
+  // Receipt upload
+  document.getElementById('receipt-upload-btn')?.addEventListener('click', () => { document.getElementById('modal-receipt-file')?.click(); });
+  document.getElementById('modal-receipt-file')?.addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try { showReceiptPreview(await compressImageToBase64(file)); }
+    catch { showStatus('圖片處理失敗', true); }
+  });
+  document.getElementById('receipt-remove-btn')?.addEventListener('click', clearReceiptPreview);
 
   // Search events
   document.getElementById('search-btn')?.addEventListener('click', openSearch);

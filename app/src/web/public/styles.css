@@ -1086,3 +1086,22 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .budget-warning-sub { font-size: 12px; margin-top: 2px; }
 .budget-warning-close { background: none; border: none; cursor: pointer; font-size: 16px; color: inherit; margin-left: auto; opacity: 0.7; padding: 0; }
 @keyframes slideUp { from { transform: translateX(-50%) translateY(20px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
+
+/* ── Annual report ── */
+.annual-summary-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 4px; }
+.annual-stat { background: var(--bg); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.annual-stat span { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
+.annual-stat strong { font-size: 15px; }
+
+/* ── Receipt photo ── */
+.receipt-field { grid-column: 1 / -1; }
+.receipt-upload-area { display: flex; flex-direction: column; gap: 8px; }
+.receipt-preview-img { max-width: 100%; max-height: 200px; border-radius: 8px; border: 1px solid var(--border); object-fit: contain; display: block; }
+.receipt-remove-btn { align-self: flex-start; font-size: 12px; padding: 4px 10px; }
+.receipt-view-btn { background: none; border: none; padding: 2px 4px; font-size: 14px; cursor: pointer; }
+
+/* ── Lightbox ── */
+.lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 2000; display: flex; align-items: center; justify-content: center; }
+.lightbox-box { position: relative; max-width: 90vw; max-height: 90vh; }
+.lightbox-img { max-width: 100%; max-height: 90vh; border-radius: 8px; object-fit: contain; display: block; }
+.lightbox-close { position: absolute; top: -16px; right: -16px; background: #fff; color: #000; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 16px; padding: 0; }

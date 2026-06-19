@@ -494,6 +494,23 @@
             </div>
           </div>
         </section>
+        <!-- Annual summary -->
+        <section class="panel" id="annual-report-panel">
+          <div class="section-header">
+            <h2>年度摘要</h2>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button id="annual-prev-year" class="icon-btn">‹</button>
+              <span id="annual-year-label" style="font-weight:600;min-width:50px;text-align:center"></span>
+              <button id="annual-next-year" class="icon-btn">›</button>
+            </div>
+          </div>
+          <div class="annual-summary-stats" id="annual-stats"></div>
+          <canvas id="annual-bar-chart" height="200" style="margin-top:16px"></canvas>
+          <div style="margin-top:16px">
+            <h3 style="font-size:13px;color:var(--text-muted);margin-bottom:8px">年度支出前 8 名</h3>
+            <div id="annual-top-cats" class="cat-breakdown"></div>
+          </div>
+        </section>
       </section>
 
       <!-- ── 月曆 ────────────────────────────────────────────────────────────── -->
@@ -739,6 +756,17 @@
           <div class="form-row">
             <label>標籤</label>
             <input type="text" name="tags" placeholder="標籤，用逗號分隔" maxlength="200" />
+          </div>
+          <div class="form-field receipt-field">
+            <label>收據照片</label>
+            <div class="receipt-upload-area" id="receipt-upload-area">
+              <input type="file" id="modal-receipt-file" accept="image/*" style="display:none" />
+              <div id="receipt-preview-wrap" hidden>
+                <img id="receipt-preview-img" class="receipt-preview-img" alt="收據" />
+                <button type="button" id="receipt-remove-btn" class="danger receipt-remove-btn">✕ 移除</button>
+              </div>
+              <button type="button" id="receipt-upload-btn" class="secondary">📷 附上收據</button>
+            </div>
           </div>
           <div class="modal-actions">
             <button type="button" id="tx-modal-cancel" class="secondary">取消</button>
