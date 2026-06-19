@@ -23,9 +23,10 @@ function mkChart(id, config) {
 // Dynamic chart colors that work in dark and light mode
 function chartPalette(n) {
   const COLORS = [
-    '#38bdf8','#f59e0b','#10b981','#f43f5e','#a78bfa',
-    '#fb923c','#34d399','#60a5fa','#e879f9','#fbbf24',
-    '#4ade80','#f87171','#818cf8','#2dd4bf','#c084fc',
+    '#2dd4a0','#fbbf24','#818cf8','#38bdf8',
+    '#f87171','#34d399','#c084fc','#60a5fa',
+    '#fb923c','#4ade80','#e879f9','#a78bfa',
+    '#2563eb','#16a34a','#dc2626',
   ];
   return Array.from({ length: n }, (_, i) => COLORS[i % COLORS.length]);
 }
@@ -37,8 +38,8 @@ function isDark() {
 function chartDefaults() {
   const dark = isDark();
   return {
-    textColor: dark ? '#94a3b8' : '#64748b',
-    gridColor: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+    textColor: dark ? '#7fa39c' : '#6b7280',
+    gridColor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
   };
 }
 
@@ -213,7 +214,7 @@ const api = async (path, options = {}) => {
 const formatMoney = (value) =>
   Number(value || 0).toLocaleString('zh-TW', { maximumFractionDigits: 2 });
 
-const chartColors = ['#146c94', '#0f7b45', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#64748b'];
+const chartColors = ['#1a7f64', '#fbbf24', '#818cf8', '#7c3aed', '#e11d48', '#0891b2', '#6b7280'];
 
 const today = new Date();
 const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -280,16 +281,16 @@ function renderDashboardSparkline(trendData) {
         {
           label: '進帳',
           data: trendData.map(d => d.totalIncome),
-          backgroundColor: '#10b98166',
-          borderColor: '#10b981',
+          backgroundColor: '#1a7f6466',
+          borderColor: '#1a7f64',
           borderWidth: 1.5,
           borderRadius: 4,
         },
         {
           label: '支出',
           data: trendData.map(d => d.totalExpense),
-          backgroundColor: '#f43f5e66',
-          borderColor: '#f43f5e',
+          backgroundColor: '#e11d4866',
+          borderColor: '#e11d48',
           borderWidth: 1.5,
           borderRadius: 4,
         },
@@ -394,11 +395,11 @@ async function loadNetWorthChart() {
           {
             label: '淨資產',
             data: history.map(h => h.netWorth),
-            borderColor: '#10b981',
+            borderColor: '#1a7f64',
             backgroundColor: ctx => {
               const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 130);
-              gradient.addColorStop(0, '#10b98133');
-              gradient.addColorStop(1, '#10b98100');
+              gradient.addColorStop(0, '#1a7f6433');
+              gradient.addColorStop(1, '#1a7f6400');
               return gradient;
             },
             fill: true,
@@ -409,7 +410,7 @@ async function loadNetWorthChart() {
           {
             label: '總資產',
             data: history.map(h => h.totalAssets),
-            borderColor: '#38bdf8',
+            borderColor: '#2dd4a0',
             backgroundColor: 'transparent',
             tension: 0.4,
             pointRadius: 0,
@@ -465,7 +466,7 @@ function renderIncomeExpenseChart(dashboard) {
   const expenseDeg = total > 0 ? (expense / total) * 360 : 0;
   const background =
     total > 0
-      ? `conic-gradient(#0f7b45 0deg ${incomeDeg}deg, #b42318 ${incomeDeg}deg ${incomeDeg + expenseDeg}deg)`
+      ? `conic-gradient(#1a7f64 0deg ${incomeDeg}deg, #e11d48 ${incomeDeg}deg ${incomeDeg + expenseDeg}deg)`
       : '';
 
   document.querySelector('#income-expense-chart').innerHTML = `
@@ -477,8 +478,8 @@ function renderIncomeExpenseChart(dashboard) {
         </div>
       </div>
       <div class="legend">
-        <div class="legend-item"><span class="swatch" style="background:#0f7b45"></span><span>進帳</span><strong>${formatMoney(income)}</strong></div>
-        <div class="legend-item"><span class="swatch" style="background:#b42318"></span><span>支出</span><strong>${formatMoney(expense)}</strong></div>
+        <div class="legend-item"><span class="swatch" style="background:#1a7f64"></span><span>進帳</span><strong>${formatMoney(income)}</strong></div>
+        <div class="legend-item"><span class="swatch" style="background:#e11d48"></span><span>支出</span><strong>${formatMoney(expense)}</strong></div>
         <div class="legend-item"><span class="swatch" style="background:#64748b"></span><span>結餘</span><strong>${formatMoney(dashboard.balance)}</strong></div>
       </div>
     </div>`;
@@ -1142,8 +1143,8 @@ function renderAnnualChart(data) {
     data: {
       labels,
       datasets: [
-        { label: '進帳', data: data.months.map(m => m.income), backgroundColor: '#10b98155', borderColor: '#10b981', borderWidth: 1.5, borderRadius: 4 },
-        { label: '支出', data: data.months.map(m => m.expense), backgroundColor: '#f43f5e55', borderColor: '#f43f5e', borderWidth: 1.5, borderRadius: 4 },
+        { label: '進帳', data: data.months.map(m => m.income), backgroundColor: '#1a7f6455', borderColor: '#1a7f64', borderWidth: 1.5, borderRadius: 4 },
+        { label: '支出', data: data.months.map(m => m.expense), backgroundColor: '#e11d4855', borderColor: '#e11d48', borderWidth: 1.5, borderRadius: 4 },
       ],
     },
     options: {
@@ -1196,8 +1197,8 @@ function renderTrendLineChart(data) {
         {
           label: '進帳',
           data: data.map(d => d.totalIncome),
-          borderColor: '#10b981',
-          backgroundColor: '#10b98122',
+          borderColor: '#1a7f64',
+          backgroundColor: '#1a7f6422',
           fill: true,
           tension: 0.4,
           pointRadius: 4,
@@ -1205,8 +1206,8 @@ function renderTrendLineChart(data) {
         {
           label: '支出',
           data: data.map(d => d.totalExpense),
-          borderColor: '#f43f5e',
-          backgroundColor: '#f43f5e22',
+          borderColor: '#e11d48',
+          backgroundColor: '#e11d4822',
           fill: true,
           tension: 0.4,
           pointRadius: 4,
@@ -1214,7 +1215,7 @@ function renderTrendLineChart(data) {
         {
           label: '結餘',
           data: data.map(d => d.balance),
-          borderColor: '#38bdf8',
+          borderColor: '#2dd4a0',
           backgroundColor: 'transparent',
           borderDash: [5, 3],
           tension: 0.4,
@@ -1351,8 +1352,8 @@ function renderBudgetChart(budgets) {
         {
           label: '預算',
           data: budgets.map(b => b.amount),
-          backgroundColor: '#38bdf844',
-          borderColor: '#38bdf8',
+          backgroundColor: '#2dd4a044',
+          borderColor: '#2dd4a0',
           borderWidth: 2,
           borderRadius: 4,
         },
@@ -1360,9 +1361,9 @@ function renderBudgetChart(budgets) {
           label: '實際支出',
           data: budgets.map(b => b.actual),
           backgroundColor: budgets.map(b =>
-            b.actual > b.amount ? '#f43f5ecc' : '#10b981cc'
+            b.actual > b.amount ? '#e11d48cc' : '#1a7f64cc'
           ),
-          borderColor: budgets.map(b => b.actual > b.amount ? '#f43f5e' : '#10b981'),
+          borderColor: budgets.map(b => b.actual > b.amount ? '#e11d48' : '#1a7f64'),
           borderWidth: 1.5,
           borderRadius: 4,
         },
@@ -1697,7 +1698,7 @@ function renderUsageChart(m) {
   const cW = W - pad.l - pad.r;
   const cH = H - pad.t - pad.b;
   ctx.clearRect(0, 0, W, H);
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#38bdf8';
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#d97706';
   usages.forEach((u, i) => {
     const x = pad.l + (i / usages.length) * cW;
     const bH = (u.usage / maxUsage) * cH;
