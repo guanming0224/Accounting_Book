@@ -1,7 +1,7 @@
 {
   "name": "accounting_book",
   "version": "1.0.0",
-  "description": "",
+  "description": "個人記帳 Web App — PWA + SQLite + Express + 深色模式",
   "main": "index.js",
   "directories": {
     "doc": "docs",
