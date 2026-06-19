@@ -188,6 +188,9 @@ async function loadDashboard() {
   loadInsights();
   // Fetch and render dashboard sparkline
   apiFetch('/api/reports/trend?months=6').then(r => r.json()).then(renderDashboardSparkline).catch(() => {});
+  loadStreak().catch(() => {});
+  loadForecast().catch(() => {});
+  loadNetWorthChart().catch(() => {});
   document.querySelector('#dashboard-ledgers').innerHTML =
     state.ledgers
       .map(
@@ -200,6 +203,103 @@ async function loadDashboard() {
           </div>`
       )
       .join('') || '<div class="row">尚無帳本</div>';
+}
+
+async function loadStreak() {
+  try {
+    const resp = await apiFetch('/api/stats/streak');
+    const data = await resp.json();
+    const el = document.getElementById('streak-value');
+    if (!el) return;
+    const streak = data.streak || 0;
+    el.textContent = streak === 0 ? '0 天' : `${streak} 天`;
+    const card = document.getElementById('streak-card');
+    if (card) {
+      card.title = data.lastRecordDate ? `最後記帳：${data.lastRecordDate}` : '';
+      if (streak >= 7) card.classList.add('streak-hot');
+    }
+  } catch { /* ignore */ }
+}
+
+async function loadForecast() {
+  try {
+    const resp = await apiFetch('/api/reports/forecast');
+    const data = await resp.json();
+    const forecastEl = document.getElementById('forecast-value');
+    const dailyEl = document.getElementById('daily-avg-value');
+    if (forecastEl) forecastEl.textContent = `NT$${data.projectedMonthTotal.toLocaleString()}`;
+    if (dailyEl) dailyEl.textContent = `NT$${data.dailyAvg.toLocaleString()}`;
+    const card = document.getElementById('forecast-card');
+    if (card) card.title = `目前已花 NT$${data.currentSpend.toLocaleString()}，還有 ${data.remainingDays} 天`;
+  } catch { /* ignore */ }
+}
+
+async function loadNetWorthChart() {
+  try {
+    const resp = await apiFetch('/api/net-worth/history');
+    const history = await resp.json();
+    if (!history.length) return;
+    const { textColor, gridColor } = chartDefaults();
+    const labels = history.map(h => h.recordedDate.slice(5)); // MM-DD
+    const netWorthEl = document.getElementById('net-worth-current');
+    if (netWorthEl && history.length) {
+      const latest = history[history.length - 1];
+      const sign = latest.netWorth >= 0 ? '+' : '';
+      netWorthEl.textContent = `${sign}NT$${Math.round(latest.netWorth).toLocaleString()}`;
+      netWorthEl.className = `badge-value ${latest.netWorth >= 0 ? 'positive' : 'negative'}`;
+    }
+    mkChart('net-worth-chart', {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: '淨資產',
+            data: history.map(h => h.netWorth),
+            borderColor: '#10b981',
+            backgroundColor: ctx => {
+              const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 130);
+              gradient.addColorStop(0, '#10b98133');
+              gradient.addColorStop(1, '#10b98100');
+              return gradient;
+            },
+            fill: true,
+            tension: 0.4,
+            pointRadius: history.length > 30 ? 0 : 3,
+            pointHoverRadius: 5,
+          },
+          {
+            label: '總資產',
+            data: history.map(h => h.totalAssets),
+            borderColor: '#38bdf8',
+            backgroundColor: 'transparent',
+            tension: 0.4,
+            pointRadius: 0,
+            borderDash: [4, 2],
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: textColor, font: { size: 11 } } },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.dataset.label}: NT$${Math.round(ctx.raw).toLocaleString()}`,
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 10 }, grid: { color: gridColor } },
+          y: {
+            ticks: { color: textColor, callback: v => 'NT$' + (v >= 1000 ? Math.round(v/1000) + 'K' : Math.round(v)) },
+            grid: { color: gridColor },
+          },
+        },
+      },
+    });
+  } catch { /* no accounts yet */ }
 }
 
 function renderDashboardAlerts(alerts) {
@@ -1891,6 +1991,75 @@ async function refreshCurrentView() {
   if (state.currentView === 'utility') await loadUtility();
 }
 
+// ── Merchant memory ───────────────────────────────────────────────────────
+const MERCHANT_MEMORY_KEY = 'merchantMemory_v1';
+
+function getMerchantMemory() {
+  try { return JSON.parse(localStorage.getItem(MERCHANT_MEMORY_KEY) || '{}'); } catch { return {}; }
+}
+
+function saveMerchantMemory(description, category, subcategory, paymentMethod) {
+  if (!description || !category) return;
+  const mem = getMerchantMemory();
+  mem[description.trim()] = { category, subcategory, paymentMethod, ts: Date.now() };
+  const trimmed = Object.entries(mem).sort((a, b) => (b[1].ts - a[1].ts)).slice(0, 150);
+  localStorage.setItem(MERCHANT_MEMORY_KEY, JSON.stringify(Object.fromEntries(trimmed)));
+}
+
+function lookupMerchant(description) {
+  if (!description) return null;
+  const mem = getMerchantMemory();
+  return mem[description.trim()] || null;
+}
+
+let _pendingMerchantHint = null;
+
+function showMerchantHint(suggestion) {
+  _pendingMerchantHint = suggestion;
+  const hint = document.getElementById('merchant-suggestion');
+  const text = document.getElementById('merchant-hint-text');
+  if (!hint || !text) return;
+  text.textContent = `上次：${suggestion.category}${suggestion.subcategory ? ' > ' + suggestion.subcategory : ''} · ${suggestion.paymentMethod}`;
+  hint.hidden = false;
+}
+
+function hideMerchantHint() {
+  _pendingMerchantHint = null;
+  const hint = document.getElementById('merchant-suggestion');
+  if (hint) hint.hidden = true;
+}
+
+function applyMerchantHint() {
+  if (!_pendingMerchantHint) return;
+  const { category, subcategory, paymentMethod } = _pendingMerchantHint;
+  const modalCat = document.getElementById('modal-category');
+  if (modalCat && category) {
+    modalCat.value = category;
+    modalCat.dispatchEvent(new Event('change'));
+    setTimeout(() => {
+      const modalSub = document.getElementById('modal-subcategory');
+      if (modalSub && subcategory) modalSub.value = subcategory;
+      const modalPay = document.getElementById('modal-payment');
+      if (modalPay && paymentMethod) modalPay.value = paymentMethod;
+    }, 50);
+  }
+  hideMerchantHint();
+}
+
+// Merchant memory — description field watcher
+document.addEventListener('blur', e => {
+  if (e.target.id === 'modal-description' || e.target.name === 'description') {
+    const val = e.target.value.trim();
+    if (!val) { hideMerchantHint(); return; }
+    const suggestion = lookupMerchant(val);
+    if (suggestion) showMerchantHint(suggestion);
+    else hideMerchantHint();
+  }
+}, true);
+
+document.getElementById('apply-merchant-hint')?.addEventListener('click', applyMerchantHint);
+document.getElementById('dismiss-merchant-hint')?.addEventListener('click', hideMerchantHint);
+
 // ── Event delegation ──────────────────────────────────────────────────────
 document.addEventListener('click', async (event) => {
   const target = event.target;
@@ -2209,6 +2378,13 @@ document.querySelector('#tx-modal-form').addEventListener('submit', async (event
         tags: tagsRaw,
       }),
     });
+    // Save merchant memory
+    const desc = form.querySelector('[name="description"]')?.value?.trim() || '';
+    const cat = form.querySelector('[name="category"]')?.value || document.getElementById('modal-category')?.value || '';
+    const sub = form.querySelector('[name="subcategory"]')?.value || document.getElementById('modal-subcategory')?.value || '';
+    const pay = form.querySelector('[name="paymentMethod"]')?.value || document.getElementById('modal-payment')?.value || '';
+    saveMerchantMemory(desc, cat, sub, pay);
+    hideMerchantHint();
     closeTxModal();
     showStatus('已新增交易');
     await refreshCurrentView();

@@ -902,3 +902,55 @@ button.small { padding: 4px 10px; font-size: 12px; }
   position: relative;
   width: 100%;
 }
+
+/* ── Streak / Forecast / Meta cards ── */
+.dashboard-meta-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.meta-card {
+  background: var(--surface);
+  border: 1px solid var(--border, var(--line));
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.2s;
+}
+.meta-card-icon { font-size: 28px; line-height: 1; }
+.meta-card-value { font-size: 20px; font-weight: 700; color: var(--text); }
+.meta-card-label { font-size: 11px; color: var(--text-muted, var(--muted)); margin-top: 2px; text-transform: uppercase; }
+.meta-card.streak-hot { border-color: #f59e0b; box-shadow: 0 0 0 1px #f59e0b33; }
+
+/* Net worth badge */
+.badge-value { font-size: 15px; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
+.badge-value.positive { color: #10b981; background: #10b98118; }
+.badge-value.negative { color: #f43f5e; background: #f43f5e18; }
+
+/* Merchant memory hint */
+.merchant-hint {
+  background: var(--bg);
+  border: 1px solid var(--border, var(--line));
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--text-muted, var(--muted));
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.merchant-hint[hidden] { display: none; }
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  text-decoration: underline;
+}

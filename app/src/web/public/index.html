@@ -57,6 +57,30 @@
           <div class="metric"><span>本月結餘</span><strong id="metric-balance">0</strong></div>
           <div class="metric"><span>交易筆數</span><strong id="metric-count">0</strong></div>
         </div>
+        <!-- Streak + Forecast cards -->
+        <div class="dashboard-meta-row">
+          <div class="meta-card" id="streak-card">
+            <div class="meta-card-icon">🔥</div>
+            <div>
+              <div class="meta-card-value" id="streak-value">—</div>
+              <div class="meta-card-label">連續記帳天數</div>
+            </div>
+          </div>
+          <div class="meta-card" id="forecast-card">
+            <div class="meta-card-icon">📈</div>
+            <div>
+              <div class="meta-card-value" id="forecast-value">—</div>
+              <div class="meta-card-label">本月預估支出</div>
+            </div>
+          </div>
+          <div class="meta-card" id="daily-avg-card">
+            <div class="meta-card-icon">📅</div>
+            <div>
+              <div class="meta-card-value" id="daily-avg-value">—</div>
+              <div class="meta-card-label">近 3 月日均支出</div>
+            </div>
+          </div>
+        </div>
         <section id="dashboard-alerts" class="panel" hidden>
           <h2>近期提醒</h2>
           <div id="dashboard-alerts-list" class="list"></div>
@@ -86,6 +110,11 @@
         <section class="panel" id="dashboard-trend-panel">
           <div class="section-header"><h2>近 6 個月趨勢</h2></div>
           <canvas id="dashboard-sparkline" height="120"></canvas>
+        </section>
+        <!-- Net worth history chart -->
+        <section class="panel" id="net-worth-panel">
+          <div class="section-header"><h2>淨資產歷史</h2><span id="net-worth-current" class="badge-value"></span></div>
+          <canvas id="net-worth-chart" height="130"></canvas>
         </section>
       </section>
 
@@ -637,6 +666,11 @@
           <div class="form-row">
             <label>備註</label>
             <input type="text" name="description" placeholder="（可留空）" maxlength="200" />
+          </div>
+          <div id="merchant-suggestion" class="merchant-hint" hidden>
+            💡 <span id="merchant-hint-text"></span>
+            <button type="button" id="apply-merchant-hint" class="link-btn">套用</button>
+            <button type="button" id="dismiss-merchant-hint" class="link-btn">忽略</button>
           </div>
           <div class="form-row">
             <label>標籤</label>
