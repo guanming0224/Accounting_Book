@@ -288,6 +288,19 @@ export class Database {
         `);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_net_worth_user ON net_worth_snapshots(userId, recordedDate)`);
 
+        // Receipt attachments for transactions
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS transaction_attachments (
+            attachmentId INTEGER PRIMARY KEY AUTOINCREMENT,
+            transactionId INTEGER NOT NULL UNIQUE,
+            mimeType TEXT NOT NULL DEFAULT 'image/jpeg',
+            data TEXT NOT NULL,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (transactionId) REFERENCES transactions(transactionId) ON DELETE CASCADE
+          )
+        `);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_attach_tx ON transaction_attachments(transactionId)`);
+
         // Utility meters (water, electricity, gas)
         this.db.run(`
           CREATE TABLE IF NOT EXISTS utility_meters (

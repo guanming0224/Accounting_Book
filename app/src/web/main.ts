@@ -1681,6 +1681,126 @@ async function startWebServer() {
     res.json({ year: y, month: m, days: [...dateMap.values()] });
   }));
 
+  // ── Annual report ─────────────────────────────────────────────────────────
+  app.get('/api/reports/annual', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { year: currentYear } = getTaipeiTodayParts();
+    const year = Math.max(2020, Math.min(2035, Number(req.query.year || currentYear)));
+
+    const startDate = sqliteDate(taipeiMidnightUtc(year, 1, 1));
+    const endDate = sqliteDate(taipeiMidnightUtc(year + 1, 1, 1));
+
+    const [monthlyRows, categoryRows] = await Promise.all([
+      db.all<{ month: number; type: string; total: number }>(
+        `SELECT CAST(strftime('%m', datetime(t.createdAt, '+8 hours')) AS INTEGER) as month,
+                t.type, SUM(t.amount) as total
+         FROM transactions t
+         INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+         WHERE l.userId = ? AND COALESCE(l.isArchived,0)=0
+           AND t.createdAt >= ? AND t.createdAt < ?
+         GROUP BY month, t.type ORDER BY month`,
+        [userId, startDate, endDate]
+      ),
+      db.all<{ category: string; total: number; count: number }>(
+        `SELECT t.category, SUM(t.amount) as total, COUNT(*) as count
+         FROM transactions t
+         INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+         WHERE l.userId = ? AND t.type = 'expense' AND COALESCE(l.isArchived,0)=0
+           AND t.createdAt >= ? AND t.createdAt < ?
+         GROUP BY t.category ORDER BY total DESC LIMIT 8`,
+        [userId, startDate, endDate]
+      ),
+    ]);
+
+    const monthMap: Record<number, { income: number; expense: number }> = {};
+    for (let m = 1; m <= 12; m++) monthMap[m] = { income: 0, expense: 0 };
+    for (const row of monthlyRows) {
+      if (row.type === 'income') monthMap[row.month].income += row.total;
+      else if (row.type === 'expense') monthMap[row.month].expense += row.total;
+    }
+    const months = Object.entries(monthMap).map(([m, v]) => ({
+      month: Number(m),
+      income: Math.round(v.income),
+      expense: Math.round(v.expense),
+      balance: Math.round(v.income - v.expense),
+    }));
+
+    const totalIncome = months.reduce((s, m) => s + m.income, 0);
+    const totalExpense = months.reduce((s, m) => s + m.expense, 0);
+    const activeMonths = months.filter(m => m.expense > 0);
+
+    res.json({
+      year,
+      months,
+      topCategories: categoryRows.map(c => ({ ...c, total: Math.round(c.total) })),
+      totalIncome,
+      totalExpense,
+      netBalance: totalIncome - totalExpense,
+      bestMonth: activeMonths.length ? activeMonths.reduce((a, b) => b.expense < a.expense ? b : a) : null,
+      worstMonth: activeMonths.length ? activeMonths.reduce((a, b) => b.expense > a.expense ? b : a) : null,
+    });
+  }));
+
+  // ── Transaction receipt attachment ────────────────────────────────────────
+  app.post('/api/transactions/:id/attachment', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const txId = Number(req.params.id);
+    const { data, mimeType } = req.body;
+    if (!data || typeof data !== 'string') throw new Error('DATA_REQUIRED');
+    if (data.length > 2_000_000) throw new Error('IMAGE_TOO_LARGE');
+
+    // Verify transaction belongs to this user
+    const tx = await db.get<any>(
+      `SELECT t.transactionId FROM transactions t
+       INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+       WHERE t.transactionId = ? AND l.userId = ?`,
+      [txId, userId]
+    );
+    if (!tx) throw new Error('TRANSACTION_NOT_FOUND');
+
+    await db.run(
+      `INSERT INTO transaction_attachments (transactionId, mimeType, data) VALUES (?, ?, ?)
+       ON CONFLICT(transactionId) DO UPDATE SET mimeType=excluded.mimeType, data=excluded.data, createdAt=CURRENT_TIMESTAMP`,
+      [txId, String(mimeType || 'image/jpeg'), data]
+    );
+    res.json({ ok: true });
+  }));
+
+  app.get('/api/transactions/:id/attachment', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const txId = Number(req.params.id);
+
+    const row = await db.get<any>(
+      `SELECT a.mimeType, a.data FROM transaction_attachments a
+       INNER JOIN transactions t ON a.transactionId = t.transactionId
+       INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+       WHERE a.transactionId = ? AND l.userId = ?`,
+      [txId, userId]
+    );
+    if (!row) { res.status(404).json({ error: 'NOT_FOUND' }); return; }
+    res.json({ mimeType: row.mimeType, data: row.data });
+  }));
+
+  app.delete('/api/transactions/:id/attachment', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const txId = Number(req.params.id);
+
+    const result = await db.run(
+      `DELETE FROM transaction_attachments WHERE transactionId = ?
+       AND transactionId IN (
+         SELECT t.transactionId FROM transactions t
+         INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+         WHERE t.transactionId = ? AND l.userId = ?
+       )`,
+      [txId, txId, userId]
+    );
+    res.json({ ok: true, deleted: result.changes > 0 });
+  }));
+
   const publicPath = path.resolve(process.cwd(), 'app/src/web/public');
   app.use(express.static(publicPath));
   app.get(/.*/, (_req, res) => res.sendFile(path.join(publicPath, 'index.html')));
