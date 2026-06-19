@@ -15,8 +15,8 @@ export class LedgerModule {
       return;
     }
 
-    // Create 5 default ledgers
-    for (let i = 1; i <= 5; i++) {
+    // Create 2 default ledgers
+    for (let i = 1; i <= 2; i++) {
       const name = LEDGER_NAMES[i as keyof typeof LEDGER_NAMES];
       await db.run(
         'INSERT INTO ledgers (userId, name, isArchived) VALUES (?, ?, 0)',
