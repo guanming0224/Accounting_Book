@@ -574,6 +574,31 @@ tbody tr:hover td {
   margin-top: 18px;
 }
 
+/* ── Date presets ────────────────────────────────────────────────────────── */
+.date-presets {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.date-presets button {
+  padding: 5px 10px;
+  font-size: var(--text-xs);
+  background: var(--surface-alt);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.date-presets button:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* ── Ledger stat row ─────────────────────────────────────────────────────── */
+.ledger-stat-row strong { font-weight: 600; }
+
 /* ── Budget ──────────────────────────────────────────────────────────────── */
 .month-nav {
   display: flex;

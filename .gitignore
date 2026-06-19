@@ -50,3 +50,7 @@ desktop.ini
 tmp/
 temp/
 .cache/
+
+# Claude
+claude/
+Claude.md

@@ -599,6 +599,20 @@ async function startWebServer() {
     res.json(await ledgerModule.getArchivedLedgers(await resolveUserId(req)));
   }));
 
+  app.get('/api/ledgers/stats', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const ledgers = await ledgerModule.getUserLedgers(userId);
+    const { startDate, endDate } = parseDateRange(req);
+    const stats = await Promise.all(
+      ledgers.map(async (l) => {
+        const s = await transactionModule.getLedgerStatsByDateRange(l.ledgerId, startDate, endDate);
+        return { ledgerId: l.ledgerId, name: l.name, ...s };
+      })
+    );
+    res.json(stats);
+  }));
+
   app.post('/api/ledgers', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const ledger = await ledgerModule.createLedger(await resolveUserId(req), String(req.body.name || ''));

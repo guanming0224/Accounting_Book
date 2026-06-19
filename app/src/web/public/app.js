@@ -548,6 +548,35 @@ async function loadLedgers() {
   renderLedgerSelect();
   renderLedgers();
   populateImportLedgerSelect();
+  loadLedgerStats();
+}
+
+async function loadLedgerStats() {
+  const now = new Date();
+  const start = toDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+  const end = toDateInput(now);
+  try {
+    const stats = await api(`/api/ledgers/stats?start=${start}&end=${end}`);
+    stats.forEach(s => {
+      const el = document.getElementById(`ledger-stats-${s.ledgerId}`);
+      if (!el) return;
+      const surplus = (s.totalIncome || 0) - (s.totalExpense || 0);
+      const color = surplus >= 0 ? 'var(--success)' : 'var(--danger)';
+      el.innerHTML = `本月 &nbsp;·&nbsp; 進帳 <strong>${formatMoney(s.totalIncome)}</strong> &nbsp;·&nbsp; 支出 <strong>${formatMoney(s.totalExpense)}</strong> &nbsp;·&nbsp; 結餘 <strong style="color:${color}">${formatMoney(surplus)}</strong>`;
+    });
+  } catch (_) {
+    document.querySelectorAll('.ledger-stat-row').forEach(el => { el.textContent = ''; });
+  }
+}
+
+function openLedgerTransactions(ledgerId) {
+  const form = document.querySelector('#transaction-filter');
+  form.querySelector('[name="ledgerId"]').value = ledgerId;
+  const now = new Date();
+  form.querySelector('[name="start"]').value = toDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+  form.querySelector('[name="end"]').value = toDateInput(now);
+  setView('transactions');
+  loadTransactions();
 }
 
 function renderLedgerSelect() {
@@ -578,9 +607,10 @@ function renderActiveLedger(ledger) {
     <div class="row">
       <div class="row-main">
         <div class="row-title">${escapeHtml(ledger.name)}</div>
-        <div class="row-meta">ledgerId: ${ledger.ledgerId}</div>
+        <div class="row-meta ledger-stat-row" id="ledger-stats-${ledger.ledgerId}">載入中…</div>
       </div>
       <div class="actions">
+        <button data-ledger-view="${ledger.ledgerId}">查看交易</button>
         <button class="secondary" data-ledger-rename="${ledger.ledgerId}">改名</button>
         <button class="danger" data-ledger-archive="${ledger.ledgerId}">封存</button>
       </div>
@@ -2474,6 +2504,31 @@ document.addEventListener('click', async (event) => {
       row.innerHTML = `<input name="pname" placeholder="名稱" /><input type="number" name="pamount" placeholder="金額" min="0" step="0.01" /><button type="button" class="danger participant-remove">✕</button>`;
       document.querySelector('#split-participants-rows').appendChild(row);
       return;
+    } else if (target.dataset.ledgerView) {
+      openLedgerTransactions(Number(target.dataset.ledgerView));
+    } else if (target.dataset.preset) {
+      const form = document.querySelector('#transaction-filter');
+      const now = new Date();
+      let start, end;
+      if (target.dataset.preset === 'today') {
+        start = end = toDateInput(now);
+      } else if (target.dataset.preset === 'week') {
+        const day = now.getDay() || 7;
+        start = toDateInput(new Date(now.getTime() - (day - 1) * 86400000));
+        end = toDateInput(now);
+      } else if (target.dataset.preset === 'month') {
+        start = toDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+        end = toDateInput(now);
+      } else if (target.dataset.preset === 'last-month') {
+        const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+        start = toDateInput(new Date(lastDay.getFullYear(), lastDay.getMonth(), 1));
+        end = toDateInput(lastDay);
+      }
+      if (start && end) {
+        form.querySelector('[name="start"]').value = start;
+        form.querySelector('[name="end"]').value = end;
+        loadTransactions();
+      }
     } else if (target.dataset.ledgerRename) {
       const ledger = state.ledgers.find((item) => item.ledgerId === Number(target.dataset.ledgerRename));
       const name = prompt('新的帳本名稱', ledger?.name || '');
