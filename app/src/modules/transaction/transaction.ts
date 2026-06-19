@@ -47,6 +47,14 @@ export class TransactionModule {
     return transaction || null;
   }
 
+  async getTransactionById(transactionId: number): Promise<Transaction | null> {
+    const transaction = await db.get<Transaction>(
+      `SELECT * FROM transactions WHERE transactionId = ?`,
+      [transactionId]
+    );
+    return transaction || null;
+  }
+
   async getTransactionsByLedgerAndDateRange(
     ledgerId: number,
     startDate: string,

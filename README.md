@@ -1,276 +1,77 @@
-# Telegram 記帳系統
+# 帳本 — 個人記帳 Web App
 
-一個基於 Telegram Bot 的完整端到端記帳系統，集成 Google Sheets 用於資料存儲。
+全端個人財務管理系統，PWA + 離線可用，支援深色模式。
 
-## 功能特性
+## 技術棧
 
-✨ **核心功能**
-- 完整的記帳流程（進帳/支出）
-- 多帳本支持（5個預設帳本）
-- 六大分類系統（食、衣、住、行、育、樂）
-- 靈活的支付方式支持
-- Google Sheets 自動備份
-- Redis 會話快取（低延遲）
+| 層級 | 技術 |
+|------|------|
+| 後端 | Node.js + TypeScript + Express 5 |
+| 資料庫 | SQLite（sqlite3） |
+| 前端 | 原生 HTML / CSS / JS（無框架） |
+| 圖表 | Chart.js 4.4 |
+| PWA | manifest.json + Service Worker |
 
-🚀 **效能優化**
-- 非阻塞 I/O 操作
-- Redis 快取層（會話和帳本數據）
-- 資料庫查詢優化和索引
-- 批量寫入 Google Sheets API
+## 功能
 
-## 系統架構
+**帳務核心**
+- 多帳本管理、帳戶轉帳
+- 交易新增 / 編輯 / 刪除，支援六大分類與子分類
+- 收據照片上傳（Base64，Canvas 壓縮）
+- 定期交易自動套用（每小時背景執行）
+- 商家記憶（輸入描述自動填入上次記錄）
 
-```
-Telegram User ──► Telegram Bot (Node.js + TypeScript)
-                        ↓
-                  [Session Cache - Redis]
-                        ↓
-                  [User & Ledger Management]
-                        ↓
-                  [Google Sheets API]
-                        ↓
-                  [Local DB - SQLite]
-```
+**報表與分析**
+- 月報 / 自訂日期範圍報告 / 年度報告（12 月長條圖）
+- 記帳月曆（每日收支概覽）
+- 全域搜尋（⌘F，模糊比對描述、分類、金額）
+- 淨資產歷史折線圖（最近 90 天）
+- 消費預測（3 個月日均 × 剩餘天數）
+- 連續記帳天數（Streak，🔥 7 天以上特效）
 
-## 環境要求
+**多幣別**
+- frankfurter.app 即時匯率（24h 快取）
+- 非 TWD 帳戶顯示台幣約當值
 
-- Node.js 18.17.0+
-- npm 9.6.7+
-- Redis (用於會話快取)
-- Telegram Bot Token
-- Google Sheets API 認證文件 (可選)
+**預算**
+- 分類預算設定，超支彈出 Toast 警示
 
-## 快速開始
+**安全**
+- SHA-256 PIN 雜湊，Bearer Token 驗證
+- 所有 API 路由加 `requireAuth()` 中介層
 
-### 1. 安裝依賴
+## 快速啟動
 
 ```bash
 npm install
+npm run dev:web       # 開發模式（ts-node）
+# 或
+npm run build && npm run web   # 編譯後執行
 ```
 
-### 2. 配置環境變數
+預設監聽 `http://localhost:3000`
 
-複製 `API/.env.example` 到 `API/.env` 並填入您的配置：
-
-```bash
-cp API/.env.example API/.env
-```
-
-編輯 `API/.env` 文件：
-
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-GOOGLE_SHEETS_CREDENTIALS=./json/credentials.json
-GOOGLE_SHEETS_ID=your_sheet_id
-REDIS_HOST=localhost
-REDIS_PORT=6379
-DB_PATH=./app/data/accounting.db
-NODE_ENV=development
-```
-
-### 3. 取得 Telegram Bot Token
-
-1. 在 Telegram 中搜尋 **@BotFather**
-2. 發送 `/newbot` 命令
-3. 按照指示建立您的 Bot
-4. 複製生成的 Token
-
-### 4. 設定 Google Sheets (可選)
-
-1. 前往 [Google Cloud Console](https://console.cloud.google.com)
-2. 建立新專案並啟用 Google Sheets API
-3. 建立服務帳號並下載 JSON 認證文件
-4. 將認證文件保存到項目目錄
-
-### 5. 運行 Bot
-
-**開發模式：**
-```bash
-npm run dev
-```
-
-**編譯為 JavaScript：**
-```bash
-npm run build
-npm start
-```
-
-## 使用說明
-
-### 記帳流程
-
-1. 向 Bot 發送 `/start` 或點擊 `記帳`
-2. 選擇進出類型：**支出** 或 **進帳**
-3. 選擇帳本：**帳本一** ~ **帳本五**
-4. 選擇類別：**食、衣、住、行、育、樂**
-5. 選擇子類別（依據所選分類）
-6. 選擇支付方式：**現金、Line Pay、支付寶、信用卡**
-7. 輸入金額
-8. 完成！交易已記錄至本地資料庫和 Google Sheets
-
-### 資料結構
-
-#### 六大分類
-
-| 類別 | 說明 | 子類別 |
-|------|------|--------|
-| 食 | 維持生命活動機能的能量提取 | 早餐、午餐、晚餐、消夜、飲料、餐飲、食材 |
-| 衣 | 身體保護與社交禮儀 | 上衣、褲子、襪子、帽子、外套、鞋子、護具、飾品 |
-| 住 | 安全、隱私與休息 | 房租、家具、水費、電費、瓦斯 |
-| 行 | 位移與運輸 | 共車費、大眾交通、私車費 |
-| 育 | 學習與培育 | 學費、書籍費、考試費 |
-| 樂 | 休閒與體驗 | 旅遊、健身 |
-
-## 項目結構
+## 目錄結構
 
 ```
 app/src/
-├── bot/                 # Telegram Bot 核心
-├── modules/
-│   ├── user/            # 使用者管理
-│   ├── ledger/          # 帳本管理
-│   ├── transaction/     # 交易管理
-│   └── category/        # 分類管理
-├── integrations/
-│   └── GoogleSheets.ts  # Google Sheets API 整合
-├── db/
-│   ├── sqlite.ts        # SQLite 連接
-│   └── cache.ts         # Redis 快取
-├── types/               # TypeScript 型別定義
-├── handlers/            # Telegram 事件處理
-└── main.ts              # 應用入口點
+├── db/sqlite.ts          # 資料庫初始化與 wrapper
+├── modules/              # transaction / ledger / user / category
+└── web/
+    ├── main.ts           # Express server + 所有 API 路由
+    └── public/
+        ├── index.html
+        ├── app.js        # 前端邏輯（~3000 行）
+        ├── styles.css
+        ├── manifest.json
+        └── sw.js         # Service Worker
 ```
 
-## 效能優化
+## 版本紀錄
 
-### 1. **快速回應**
-- 使用 Redis 快取會話狀態
-- 預先載入用戶帳本數據
-- 減少資料庫查詢次數
-
-### 2. **非阻塞操作**
-- 所有 I/O 操作都使用 async/await
-- Google Sheets 寫入為後台異步操作
-- 不會阻塞 Telegram 消息處理
-
-### 3. **資料庫優化**
-- SQLite 本地存儲快速查詢
-- 建立索引加速查詢
-- 預設分頁提取交易紀錄
-
-### 4. **批量操作**
-- 支持批量寫入 Google Sheets
-- 減少 API 呼叫次數
-
-## API 參考
-
-### 使用者模組
-
-```typescript
-// 獲取或建立使用者
-await userModule.getOrCreateUser(userId, username);
-
-// 根據 ID 獲取使用者
-await userModule.getUserByUserId(userId);
-```
-
-### 帳本模組
-
-```typescript
-// 為使用者建立預設帳本
-await ledgerModule.createDefaultLedgers(userId);
-
-// 獲取使用者的所有帳本
-await ledgerModule.getUserLedgers(userId);
-```
-
-### 交易模組
-
-```typescript
-// 建立交易
-await transactionModule.createTransaction(
-  ledgerId,
-  'expense',
-  100,
-  '食',
-  '午餐',
-  'cash',
-  '備註'
-);
-
-// 獲取帳本交易紀錄
-await transactionModule.getTransactionsByLedger(ledgerId);
-```
-
-## 故障排查
-
-### Redis 連接失敗
-```
-⚠️  Failed to connect to Redis
-```
-確保 Redis 服務正在運行：
-```bash
-redis-server
-```
-
-### Google Sheets 認證失敗
-```
-⚠️  Google Sheets authentication failed
-```
-- 檢查認證文件路徑
-- 驗證 Sheets API 已啟用
-- 確認服務帳號有寫入權限
-
-### Telegram Bot 無回應
-```
-❌ Failed to start bot: TELEGRAM_BOT_TOKEN is not set
-```
-確保 `TELEGRAM_BOT_TOKEN` 已正確設置
-
-## 部署
-
-### Docker 部署
-
-```bash
-docker build -t accounting-bot .
-docker run -e TELEGRAM_BOT_TOKEN=xxx accounting-bot
-```
-
-### PM2 進程管理
-
-```bash
-pm2 start dist/main.js --name accounting-bot
-pm2 save
-pm2 startup
-```
-
-## 開發
-
-### 運行測試
-```bash
-npm test
-```
-
-### 代碼格式化
-```bash
-npm run format
-```
-
-### Linting
-```bash
-npm run lint
-```
-
-## 貢獻
-
-歡迎提交 Pull Request 或報告 Issue！
-
-## 許可證
-
-MIT
-
----
-
-**祝您使用愉快！** 🎉
-
-如有任何問題，請聯繫開發者或提交 Issue。
+| Tag | 內容 |
+|-----|------|
+| v0.4.3 | 水電度數追蹤 |
+| v0.4.1 | 水電 API |
+| v0.4.0 | Auth UI、範本、批次操作、洞察、通知、備份還原、匯率 |
+| v0.3.7 | 同上（前端） |

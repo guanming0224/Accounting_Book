@@ -1,6 +1,6 @@
 你現在平常測試可以用：
 
-npm run dev
+npm run dev:all
 
 
 要部署或長時間正式跑，再用：
