@@ -1263,6 +1263,38 @@ async function startWebServer() {
     res.json(result);
   }));
 
+  // ── Day-of-week spending ──────────────────────────────────────────────────
+  app.get('/api/reports/day-of-week', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const months = Math.min(Math.max(Number(req.query.months || 3), 1), 12);
+    const { year, month } = getTaipeiTodayParts();
+    let startYear = year;
+    let startMonth = month - months + 1;
+    while (startMonth <= 0) { startMonth += 12; startYear--; }
+    const startDate = sqliteDate(taipeiMidnightUtc(startYear, startMonth, 1));
+
+    const rows = await db.all<{ dow: number; total: number; count: number }>(
+      `SELECT
+         CAST(strftime('%w', datetime(t.createdAt, '+8 hours')) AS INTEGER) as dow,
+         SUM(t.amount) as total,
+         COUNT(*) as count
+       FROM transactions t
+       INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+       WHERE l.userId = ? AND COALESCE(l.isArchived, 0) = 0 AND t.type = 'expense' AND t.createdAt >= ?
+       GROUP BY dow
+       ORDER BY dow ASC`,
+      [userId, startDate]
+    );
+
+    const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
+    const result = dayNames.map((name, i) => {
+      const row = rows.find(r => r.dow === i);
+      return { day: i, name, total: row?.total || 0, count: row?.count || 0 };
+    });
+    res.json(result);
+  }));
+
   // ── Utility Meters ────────────────────────────────────────────────────────
   app.get('/api/utility/meters', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
