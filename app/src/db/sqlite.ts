@@ -271,6 +271,23 @@ export class Database {
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_reminders_user ON bill_reminders(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_splits_user ON split_bills(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_templates_user ON transaction_templates(userId)`);
+
+        // Net worth snapshots (daily)
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS net_worth_snapshots (
+            snapshotId INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            totalAssets REAL NOT NULL DEFAULT 0,
+            totalLiabilities REAL NOT NULL DEFAULT 0,
+            netWorth REAL NOT NULL DEFAULT 0,
+            recordedDate TEXT NOT NULL,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(userId, recordedDate),
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_net_worth_user ON net_worth_snapshots(userId, recordedDate)`);
+
         // Utility meters (water, electricity, gas)
         this.db.run(`
           CREATE TABLE IF NOT EXISTS utility_meters (

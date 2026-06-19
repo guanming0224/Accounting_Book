@@ -114,6 +114,55 @@ function requireAuth(req: Request, res: Response): boolean {
   return false;
 }
 
+async function recordNetWorthSnapshot(userId: number): Promise<void> {
+  const { year, month, day } = getTaipeiTodayParts();
+  const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const accounts = await db.all<any>('SELECT * FROM accounts WHERE userId = ?', [userId]);
+  if (!accounts.length) return;
+  const totalAssets = accounts.filter((a: any) => a.balance >= 0).reduce((s: number, a: any) => s + a.balance, 0);
+  const totalLiabilities = accounts.filter((a: any) => a.balance < 0).reduce((s: number, a: any) => s + Math.abs(a.balance), 0);
+  const netWorth = totalAssets - totalLiabilities;
+  await db.run(
+    `INSERT INTO net_worth_snapshots (userId, totalAssets, totalLiabilities, netWorth, recordedDate)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(userId, recordedDate) DO UPDATE SET
+       totalAssets = excluded.totalAssets,
+       totalLiabilities = excluded.totalLiabilities,
+       netWorth = excluded.netWorth`,
+    [userId, totalAssets, totalLiabilities, netWorth, today]
+  );
+}
+
+async function autoApplyRecurring(): Promise<void> {
+  const { year, month, day } = getTaipeiTodayParts();
+  const todayStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  try {
+    const dueItems = await db.all<any>(
+      `SELECT * FROM recurring_transactions WHERE isActive = 1 AND nextDate != '' AND nextDate <= ?`,
+      [todayStr]
+    );
+    for (const rec of dueItems) {
+      try {
+        await transactionModule.createTransaction(
+          rec.ledgerId, rec.type as TransactionType, rec.amount,
+          rec.category, rec.subcategory, rec.paymentMethod,
+          `[自動] ${rec.description || ''}`
+        );
+        const nextDate = computeNextDate(rec.dayOfMonth);
+        await db.run(
+          'UPDATE recurring_transactions SET nextDate = ?, updatedAt = CURRENT_TIMESTAMP WHERE recurringId = ?',
+          [nextDate, rec.recurringId]
+        );
+        console.log(`[Auto-recurring] Applied: ${rec.category} $${rec.amount} for user ${rec.userId}`);
+      } catch (err) {
+        console.error(`[Auto-recurring] Failed recurringId=${rec.recurringId}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('[Auto-recurring] Check failed:', err);
+  }
+}
+
 async function getSettings(userId: number) {
   const [paymentMethods, expenseCategories, incomeCategories] = await Promise.all([
     settingsModule.getPaymentMethods(userId),
@@ -134,6 +183,10 @@ async function startWebServer() {
     appPinEnabled = true;
     appPinHash = pinHashRow.value;
   }
+
+  // Auto-apply recurring transactions on startup and every hour
+  await autoApplyRecurring();
+  setInterval(autoApplyRecurring, 60 * 60 * 1000);
 
   const app = express();
   app.use(express.json());
@@ -921,6 +974,7 @@ async function startWebServer() {
       `INSERT INTO accounts (userId, name, type, balance, currency, note) VALUES (?, ?, ?, ?, ?, ?)`,
       [userId, String(name), String(type || 'bank'), Number(balance || 0), String(currency || 'TWD'), String(note || '')]
     );
+    await recordNetWorthSnapshot(userId).catch(() => {});
     res.json(await db.get<any>('SELECT * FROM accounts WHERE accountId = ?', [result.lastID]));
   }));
 
@@ -940,6 +994,7 @@ async function startWebServer() {
       db.run('UPDATE accounts SET balance = balance - ?, updatedAt = CURRENT_TIMESTAMP WHERE accountId = ?', [transferAmount, fromAcc.accountId]),
       db.run('UPDATE accounts SET balance = balance + ?, updatedAt = CURRENT_TIMESTAMP WHERE accountId = ?', [transferAmount, toAcc.accountId]),
     ]);
+    await recordNetWorthSnapshot(userId).catch(() => {});
     res.json({ ok: true, note: note || '' });
   }));
 
@@ -956,6 +1011,7 @@ async function startWebServer() {
       'UPDATE accounts SET name = ?, balance = ?, currency = ?, note = ?, updatedAt = CURRENT_TIMESTAMP WHERE accountId = ?',
       [name, balance, currency, note, account.accountId]
     );
+    await recordNetWorthSnapshot(userId).catch(() => {});
     res.json(await db.get<any>('SELECT * FROM accounts WHERE accountId = ?', [account.accountId]));
   }));
 
@@ -1453,6 +1509,91 @@ async function startWebServer() {
       '住家', reading.meterName, paymentMethod, description
     );
     res.json({ transaction, usage, cost, description });
+  }));
+
+  // ── Net worth history ─────────────────────────────────────────────────────
+  app.get('/api/net-worth/history', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    await recordNetWorthSnapshot(userId).catch(() => {});
+    const history = await db.all<any>(
+      'SELECT * FROM net_worth_snapshots WHERE userId = ? ORDER BY recordedDate ASC LIMIT 90',
+      [userId]
+    );
+    res.json(history);
+  }));
+
+  // ── Streak (consecutive days with transactions) ───────────────────────────
+  app.get('/api/stats/streak', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const rows = await db.all<{ txDate: string }>(
+      `SELECT DISTINCT strftime('%Y-%m-%d', datetime(t.createdAt, '+8 hours')) as txDate
+       FROM transactions t
+       INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+       WHERE l.userId = ? AND COALESCE(l.isArchived, 0) = 0
+       ORDER BY txDate DESC
+       LIMIT 400`,
+      [userId]
+    );
+    if (!rows.length) { res.json({ streak: 0, lastRecordDate: null }); return; }
+    const { year, month, day } = getTaipeiTodayParts();
+    const todayStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dateSet = new Set(rows.map(r => r.txDate));
+    let streak = 0;
+    const cursor = new Date(
+      (dateSet.has(todayStr) ? todayStr : (() => {
+        const d = new Date(todayStr + 'T12:00:00Z'); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10);
+      })()) + 'T12:00:00Z'
+    );
+    while (true) {
+      const dateStr = cursor.toISOString().slice(0, 10);
+      if (!dateSet.has(dateStr)) break;
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    res.json({ streak, lastRecordDate: rows[0]?.txDate || null, todayRecorded: dateSet.has(todayStr) });
+  }));
+
+  // ── Spending forecast ─────────────────────────────────────────────────────
+  app.get('/api/reports/forecast', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { year, month, day } = getTaipeiTodayParts();
+    let sy = year, sm = month - 3;
+    while (sm <= 0) { sm += 12; sy--; }
+    const histStart = sqliteDate(taipeiMidnightUtc(sy, sm, 1));
+    const currRange = monthRangeForYearMonth(year, month);
+    const [histRow, currRow] = await Promise.all([
+      db.get<{ total: number }>(
+        `SELECT SUM(t.amount) as total FROM transactions t
+         INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+         WHERE l.userId = ? AND t.type = 'expense' AND COALESCE(l.isArchived,0)=0
+           AND t.createdAt >= ? AND t.createdAt < ?`,
+        [userId, histStart, currRange.startDate]
+      ),
+      db.get<{ total: number }>(
+        `SELECT SUM(t.amount) as total FROM transactions t
+         INNER JOIN ledgers l ON t.ledgerId = l.ledgerId
+         WHERE l.userId = ? AND t.type = 'expense' AND COALESCE(l.isArchived,0)=0
+           AND t.createdAt >= ? AND t.createdAt < ?`,
+        [userId, currRange.startDate, currRange.endDate]
+      ),
+    ]);
+    const hist3Total = histRow?.total || 0;
+    const dailyAvg = hist3Total / 90;
+    const currSpend = currRow?.total || 0;
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const remainingDays = daysInMonth - day;
+    const projected = Math.round(currSpend + remainingDays * dailyAvg);
+    res.json({
+      dailyAvg: Math.round(dailyAvg),
+      currentSpend: Math.round(currSpend),
+      projectedMonthTotal: projected,
+      remainingDays,
+      daysInMonth,
+      dayOfMonth: day,
+    });
   }));
 
   const publicPath = path.resolve(process.cwd(), 'app/src/web/public');
