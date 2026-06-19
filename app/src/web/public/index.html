@@ -19,6 +19,7 @@
         <span id="user-label">Local dashboard</span>
       </div>
       <nav>
+        <button id="search-btn" class="icon-btn" title="搜尋">🔍</button>
         <div class="nav-group-label">記帳</div>
         <button class="nav-button active" data-view="dashboard">總覽</button>
         <button class="nav-button" data-view="transactions">交易</button>
@@ -30,11 +31,19 @@
         <button class="nav-button" data-view="recurring">定期交易</button>
         <button class="nav-button" data-view="reminders">帳單提醒</button>
         <div class="nav-group-label">分析</div>
+        <button class="nav-button" data-view="calendar">📅 月曆</button>
         <button class="nav-button" data-view="reports">趨勢報表</button>
         <div class="nav-group-label">其他</div>
         <button class="nav-button" data-view="splits">分帳</button>
         <button class="nav-button" data-view="utility">🔌 水電追蹤</button>
         <button class="nav-button" data-view="settings">設定</button>
+        <div id="search-overlay" class="search-overlay" hidden>
+          <div class="search-box">
+            <input id="search-input" type="search" placeholder="搜尋交易（金額、類別、備註）…" autocomplete="off" />
+            <button id="search-close" class="icon-btn">✕</button>
+          </div>
+          <div id="search-results" class="search-results"></div>
+        </div>
       </nav>
     </aside>
 
@@ -483,6 +492,25 @@
                 <div id="cr-income-cats" class="cat-breakdown"></div>
               </div>
             </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- ── 月曆 ────────────────────────────────────────────────────────────── -->
+      <section id="calendar-view" class="view">
+        <section class="panel">
+          <div class="section-header">
+            <h2>記帳月曆</h2>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button id="cal-prev" class="icon-btn">‹</button>
+              <span id="cal-title" style="font-weight:600;min-width:80px;text-align:center"></span>
+              <button id="cal-next" class="icon-btn">›</button>
+            </div>
+          </div>
+          <div id="calendar-grid" class="calendar-grid"></div>
+          <div id="cal-day-detail" class="cal-day-detail" hidden>
+            <h3 id="cal-detail-date"></h3>
+            <div id="cal-detail-txs"></div>
           </div>
         </section>
       </section>

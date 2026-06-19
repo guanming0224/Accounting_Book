@@ -997,3 +997,92 @@ button.small { padding: 4px 10px; font-size: 12px; }
   #print-cat-table th, #print-cat-table td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
   #print-summary-table th, #print-cat-table th { background: #f5f5f5; font-weight: bold; }
 }
+
+/* ── Search overlay ── */
+.search-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 60px;
+}
+.search-overlay[hidden] { display: none; }
+.search-box {
+  background: var(--surface);
+  border-radius: 14px 14px 0 0;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(600px, 96vw);
+  box-shadow: 0 8px 40px #0005;
+}
+.search-box input { flex: 1; border: none; background: transparent; font-size: 17px; color: var(--text); outline: none; }
+.search-results {
+  background: var(--surface);
+  border-radius: 0 0 14px 14px;
+  width: min(600px, 96vw);
+  max-height: 55vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 40px #0005;
+}
+.search-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border); gap: 12px; }
+.search-row:first-child { border-top: none; }
+.search-row-main { flex: 1; min-width: 0; }
+.search-row-cat { font-weight: 600; font-size: 14px; display: block; }
+.search-row-desc { font-size: 12px; color: var(--text-muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-ledger { font-style: italic; }
+.search-row-right { text-align: right; flex-shrink: 0; }
+.search-row-date { font-size: 11px; color: var(--text-muted); display: block; }
+.search-loading, .search-empty { padding: 20px 16px; color: var(--text-muted); font-size: 14px; text-align: center; }
+.expense-color { color: var(--danger); }
+.income-color { color: var(--success); }
+
+/* ── Calendar ── */
+.calendar-grid { user-select: none; }
+.cal-headers { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
+.cal-hdr { text-align: center; font-size: 11px; font-weight: 600; color: var(--text-muted); padding: 4px 0; }
+.cal-body { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-cell { min-height: 58px; border-radius: 8px; padding: 4px 5px; cursor: pointer; transition: background 0.15s; }
+.cal-cell:hover { background: var(--bg); }
+.cal-cell.cal-empty { cursor: default; }
+.cal-cell.cal-today { background: #e0f0ff; }
+[data-theme="dark"] .cal-cell.cal-today { background: #1a3a5c; }
+.cal-cell.cal-has-tx { font-weight: 600; }
+.cal-day-num { font-size: 12px; color: var(--text-muted); }
+.cal-cell.cal-today .cal-day-num { color: var(--primary, #2563eb); font-weight: 700; }
+.cal-expense { font-size: 10px; color: var(--danger); margin-top: 2px; }
+.cal-day-detail { margin-top: 16px; background: var(--bg); border-radius: 10px; padding: 12px 14px; }
+.cal-day-detail[hidden] { display: none; }
+.cal-day-detail h3 { font-size: 14px; margin: 0 0 8px; }
+.cal-tx-row { display: flex; justify-content: space-between; padding: 5px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.cal-tx-row:first-child { border-top: none; }
+
+/* ── Budget warning toast ── */
+.budget-warning-toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #fef3c7;
+  border: 1.5px solid #f59e0b;
+  color: #92400e;
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 20px #0002;
+  z-index: 900;
+  max-width: 380px;
+  animation: slideUp 0.25s ease;
+}
+[data-theme="dark"] .budget-warning-toast { background: #3b2a00; border-color: #f59e0b; color: #fcd34d; }
+.budget-warning-icon { font-size: 22px; flex-shrink: 0; }
+.budget-warning-title { font-weight: 700; font-size: 14px; }
+.budget-warning-sub { font-size: 12px; margin-top: 2px; }
+.budget-warning-close { background: none; border: none; cursor: pointer; font-size: 16px; color: inherit; margin-left: auto; opacity: 0.7; padding: 0; }
+@keyframes slideUp { from { transform: translateX(-50%) translateY(20px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }

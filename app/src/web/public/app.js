@@ -42,6 +42,144 @@ function chartDefaults() {
   };
 }
 
+// ── Search ────────────────────────────────────────────────────────────────
+let _searchTimer = null;
+
+function openSearch() {
+  const overlay = document.getElementById('search-overlay');
+  if (!overlay) return;
+  overlay.hidden = false;
+  document.getElementById('search-input')?.focus();
+}
+
+function closeSearch() {
+  const overlay = document.getElementById('search-overlay');
+  if (overlay) overlay.hidden = true;
+  const input = document.getElementById('search-input');
+  if (input) input.value = '';
+  const results = document.getElementById('search-results');
+  if (results) results.innerHTML = '';
+}
+
+async function runSearch(q) {
+  const results = document.getElementById('search-results');
+  if (!results) return;
+  if (!q.trim()) { results.innerHTML = ''; return; }
+  results.innerHTML = '<div class="search-loading">搜尋中…</div>';
+  try {
+    const rows = await api(`/api/search?q=${encodeURIComponent(q)}`);
+    if (!rows.length) { results.innerHTML = '<div class="search-empty">找不到符合的交易</div>'; return; }
+    results.innerHTML = rows.map(t => {
+      const sign = t.type === 'expense' ? '-' : '+';
+      const colorClass = t.type === 'expense' ? 'expense-color' : 'income-color';
+      const date = (t.createdAt || '').slice(0, 10);
+      return `<div class="search-row">
+        <div class="search-row-main">
+          <span class="search-row-cat">${escapeHtml(t.category)}${t.subcategory ? ' · ' + escapeHtml(t.subcategory) : ''}</span>
+          <span class="search-row-desc">${escapeHtml(t.description || '')}${t.ledgerName ? ' <span class="search-ledger">(' + escapeHtml(t.ledgerName) + ')</span>' : ''}</span>
+        </div>
+        <div class="search-row-right">
+          <span class="${colorClass}">${sign}${formatMoney(t.amount)}</span>
+          <span class="search-row-date">${date}</span>
+        </div>
+      </div>`;
+    }).join('');
+  } catch { results.innerHTML = '<div class="search-empty">搜尋失敗</div>'; }
+}
+
+// ── Calendar ──────────────────────────────────────────────────────────────
+const calState = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+let _calDayMap = new Map();
+
+async function loadCalendar() {
+  const { year, month } = calState;
+  const titleEl = document.getElementById('cal-title');
+  if (titleEl) titleEl.textContent = `${year}/${String(month).padStart(2, '0')}`;
+  try {
+    const data = await api(`/api/calendar?year=${year}&month=${month}`);
+    renderCalendarGrid(data);
+  } catch { const g = document.getElementById('calendar-grid'); if (g) g.innerHTML = '<div class="text-muted">載入失敗</div>'; }
+}
+
+function renderCalendarGrid(data) {
+  const { year, month, days } = data;
+  _calDayMap = new Map((days || []).map(d => [d.date, d]));
+  const grid = document.getElementById('calendar-grid');
+  if (!grid) return;
+  const firstDow = new Date(year, month - 1, 1).getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const today2 = new Date().toISOString().slice(0, 10);
+  const HEADERS = ['日', '一', '二', '三', '四', '五', '六'];
+  let html = '<div class="cal-headers">' + HEADERS.map(h => `<div class="cal-hdr">${h}</div>`).join('') + '</div>';
+  html += '<div class="cal-body">';
+  for (let i = 0; i < firstDow; i++) html += '<div class="cal-cell cal-empty"></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const info = _calDayMap.get(dateStr);
+    const isToday = dateStr === today2;
+    const expDisplay = info && info.expense > 0
+      ? (info.expense >= 1000 ? '-' + Math.round(info.expense / 1000) + 'K' : '-' + Math.round(info.expense))
+      : '';
+    html += `<div class="cal-cell${isToday ? ' cal-today' : ''}${info ? ' cal-has-tx' : ''}" data-cal-date="${dateStr}">
+      <div class="cal-day-num">${d}</div>
+      ${expDisplay ? `<div class="cal-expense">${expDisplay}</div>` : ''}
+    </div>`;
+  }
+  html += '</div>';
+  grid.innerHTML = html;
+  const det = document.getElementById('cal-day-detail');
+  if (det) det.hidden = true;
+}
+
+function showCalDayDetail(date, info) {
+  const detail = document.getElementById('cal-day-detail');
+  if (!detail) return;
+  document.getElementById('cal-detail-date').textContent = date;
+  if (!info) { detail.hidden = true; return; }
+  detail.hidden = false;
+  const lines = [];
+  if (info.expense > 0) lines.push(`<div class="cal-tx-row"><span>支出合計</span><span class="expense-color">-${formatMoney(info.expense)}</span></div>`);
+  if (info.income > 0) lines.push(`<div class="cal-tx-row"><span>收入合計</span><span class="income-color">+${formatMoney(info.income)}</span></div>`);
+  if (info.count) lines.push(`<div class="cal-tx-row" style="font-size:11px;color:var(--text-muted)"><span>共 ${info.count} 筆</span><button class="link-btn" onclick="setView('transactions')">查看明細 →</button></div>`);
+  document.getElementById('cal-detail-txs').innerHTML = lines.join('');
+}
+
+// ── Budget overspend alert ────────────────────────────────────────────────
+function getCurrentYearMonth() {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+async function checkBudgetOverspend(category) {
+  if (!category) return;
+  try {
+    const { year, month } = getCurrentYearMonth();
+    const budgets = await api(`/api/budgets?year=${year}&month=${month}`);
+    const match = (budgets || []).find(b => b.category === category || b.category === '全部支出');
+    if (!match) return;
+    const spent = match.actual || 0;
+    const limit = match.amount || 0;
+    if (spent > limit && limit > 0) showBudgetWarning(category, Math.round(spent - limit), spent, limit);
+  } catch { /* ignore */ }
+}
+
+function showBudgetWarning(category, overAmount, spent, limit) {
+  document.getElementById('budget-warning-toast')?.remove();
+  const toast = document.createElement('div');
+  toast.id = 'budget-warning-toast';
+  toast.className = 'budget-warning-toast';
+  toast.innerHTML = `
+    <span class="budget-warning-icon">⚠️</span>
+    <div>
+      <div class="budget-warning-title">預算超支：${escapeHtml(category)}</div>
+      <div class="budget-warning-sub">已花 ${formatMoney(spent)}，超出預算 NT$${overAmount.toLocaleString()}</div>
+    </div>
+    <button class="budget-warning-close" onclick="this.closest('#budget-warning-toast').remove()">✕</button>
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 8000);
+}
+
 // ── Auth token ────────────────────────────────────────────────────────────
 let authToken = localStorage.getItem('authToken') || '';
 
@@ -2038,6 +2176,7 @@ function setView(view) {
     splits: '分帳',
     utility: '水電用量追蹤',
     settings: '設定',
+    calendar: '記帳月曆',
   };
   document.querySelector('#page-title').textContent = titles[view] || view;
 
@@ -2049,6 +2188,7 @@ function setView(view) {
     initTemplateForm();
   }
   if (view === 'utility') loadUtility();
+  if (view === 'calendar') loadCalendar();
 }
 
 async function refreshCurrentView() {
@@ -2064,6 +2204,7 @@ async function refreshCurrentView() {
   if (state.currentView === 'reminders') await loadReminders();
   if (state.currentView === 'splits') await loadSplits();
   if (state.currentView === 'utility') await loadUtility();
+  if (state.currentView === 'calendar') await loadCalendar();
 }
 
 // ── Merchant memory ───────────────────────────────────────────────────────
@@ -2464,6 +2605,7 @@ document.querySelector('#tx-modal-form').addEventListener('submit', async (event
     const pay = form.querySelector('[name="paymentMethod"]')?.value || document.getElementById('modal-payment')?.value || '';
     saveMerchantMemory(desc, cat, sub, pay);
     hideMerchantHint();
+    if (state.modalType === 'expense' && cat) checkBudgetOverspend(cat).catch(() => {});
     closeTxModal();
     showStatus('已新增交易');
     await refreshCurrentView();
@@ -2794,6 +2936,34 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
   filter.start.value = toDateInput(monthStart);
   filter.end.value = toDateInput(today);
   updateBudgetMonthLabel();
+
+  // Search events
+  document.getElementById('search-btn')?.addEventListener('click', openSearch);
+  document.getElementById('search-close')?.addEventListener('click', closeSearch);
+  document.getElementById('search-input')?.addEventListener('input', e => {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => runSearch(e.target.value), 280);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeSearch();
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); openSearch(); }
+  });
+
+  // Calendar navigation
+  document.getElementById('cal-prev')?.addEventListener('click', () => {
+    calState.month--;
+    if (calState.month < 1) { calState.month = 12; calState.year--; }
+    loadCalendar();
+  });
+  document.getElementById('cal-next')?.addEventListener('click', () => {
+    calState.month++;
+    if (calState.month > 12) { calState.month = 1; calState.year++; }
+    loadCalendar();
+  });
+  document.getElementById('calendar-grid')?.addEventListener('click', e => {
+    const cell = e.target.closest('[data-cal-date]');
+    if (cell) showCalDayDetail(cell.dataset.calDate, _calDayMap.get(cell.dataset.calDate));
+  });
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
