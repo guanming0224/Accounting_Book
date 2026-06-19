@@ -513,56 +513,47 @@ function renderLedgerExpenseChart(ledgerStats) {
   const el = document.querySelector('#dashboard-ledgers');
   if (!el) return;
 
-  const netBalance = ledgerStats.reduce((s, l) => s + (l.balance || 0), 0);
+  if (!ledgerStats.length) {
+    el.innerHTML = '<div class="row-meta" style="padding:12px 0">尚無帳本資料</div>';
+    return;
+  }
 
-  // Segments: use positive balance for proportional display
-  const positiveTotal = ledgerStats.reduce((s, l) => s + Math.max(0, l.balance || 0), 0);
-  let deg = 0;
-  const segments = ledgerStats.map((l, i) => {
-    const val = Math.max(0, l.balance || 0);
-    const span = positiveTotal > 0 ? (val / positiveTotal) * 360 : 0;
-    const start = deg;
-    deg += span;
-    return { l, color: chartColors[i % chartColors.length], start, end: deg };
-  });
+  const cards = ledgerStats.map(l => {
+    const income  = l.totalIncome  || 0;
+    const expense = l.totalExpense || 0;
+    const balance = l.balance      || 0;
 
-  // Build conic-gradient
-  let conicParts = segments
-    .filter(s => s.end > s.start)
-    .map(s => `${s.color} ${s.start.toFixed(1)}deg ${s.end.toFixed(1)}deg`);
-  if (deg < 359.9) conicParts.push(`var(--surface-mid) ${deg.toFixed(1)}deg 360deg`);
-  const bg = conicParts.length
-    ? `conic-gradient(${conicParts.join(', ')})`
-    : 'conic-gradient(var(--danger) 0deg 360deg)';
+    // Build conic-gradient: green (remaining) → red (spent)
+    let bg;
+    if (income <= 0 && expense <= 0) {
+      bg = `conic-gradient(var(--surface-mid) 0deg 360deg)`;
+    } else if (income <= 0 || expense >= income) {
+      bg = `conic-gradient(var(--danger) 0deg 360deg)`;
+    } else {
+      const expDeg = (expense / income) * 360;
+      const balDeg = 360 - expDeg;
+      bg = `conic-gradient(var(--success) 0deg ${balDeg.toFixed(1)}deg, var(--danger) ${balDeg.toFixed(1)}deg 360deg)`;
+    }
 
-  const netColor = netBalance >= 0 ? 'var(--success)' : 'var(--danger)';
-  const legendItems = segments.map(s => {
-    const l = s.l;
-    const bal = l.balance || 0;
-    const balColor = bal >= 0 ? 'var(--success)' : 'var(--danger)';
+    const balColor = balance >= 0 ? 'var(--success)' : 'var(--danger)';
+
     return `
-      <div class="ledger-legend-item" data-ledger-view="${l.ledgerId}">
-        <div class="ledger-legend-left">
-          <span class="swatch" style="background:${s.color}"></span>
-          <span class="ledger-legend-name" title="${escapeAttr(l.name)}">${escapeHtml(l.name)}</span>
+      <div class="ledger-donut-card" data-ledger-view="${l.ledgerId}" title="點擊查看 ${escapeAttr(l.name)} 交易明細">
+        <div class="donut donut-sm" style="background:${bg}">
+          <div class="donut-center">
+            <span class="donut-center-label">結餘</span>
+            <strong class="donut-center-value" style="color:${balColor}">${formatMoney(balance)}</strong>
+          </div>
         </div>
-        <div class="ledger-legend-right">
-          <span class="ledger-legend-sub">進 ${formatMoney(l.totalIncome)} · 出 ${formatMoney(l.totalExpense)}</span>
-          <strong class="ledger-legend-balance" style="color:${balColor}">${formatMoney(bal)}</strong>
+        <div class="ledger-donut-name">${escapeHtml(l.name)}</div>
+        <div class="ledger-donut-stats">
+          <span class="ledger-stat-in">↑ ${formatMoney(income)}</span>
+          <span class="ledger-stat-out">↓ ${formatMoney(expense)}</span>
         </div>
       </div>`;
-  }).join('') || '<div class="row-meta">本月尚無帳本資料</div>';
+  }).join('');
 
-  el.innerHTML = `
-    <div class="ledger-donut-layout">
-      <div class="donut" style="background:${bg}">
-        <div class="donut-center">
-          <span class="donut-center-label">本月結餘</span>
-          <strong class="donut-center-value" style="color:${netColor}">${formatMoney(netBalance)}</strong>
-        </div>
-      </div>
-      <div class="ledger-legend">${legendItems}</div>
-    </div>`;
+  el.innerHTML = `<div class="ledger-donut-grid">${cards}</div>`;
 }
 
 // ── Ledgers ───────────────────────────────────────────────────────────────
