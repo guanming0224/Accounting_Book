@@ -93,7 +93,7 @@ export class LedgerModule {
     return renamedLedger as Ledger;
   }
 
-  async createLedger(userId: number, name: string): Promise<Ledger> {
+  async createLedger(userId: number, name: string, accountId?: number | null): Promise<Ledger> {
     const normalizedName = this.normalizeLedgerName(name);
     const duplicate = await db.get<Ledger>(
       'SELECT * FROM ledgers WHERE userId = ? AND name = ? AND COALESCE(isArchived, 0) = 0',
@@ -104,8 +104,8 @@ export class LedgerModule {
     }
 
     const result = await db.run(
-      'INSERT INTO ledgers (userId, name, isArchived) VALUES (?, ?, 0)',
-      [userId, normalizedName]
+      'INSERT INTO ledgers (userId, name, isArchived, accountId) VALUES (?, ?, 0, ?)',
+      [userId, normalizedName, accountId ?? null]
     );
     await cacheManager.invalidateLedgerCache(userId);
 

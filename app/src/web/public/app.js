@@ -990,8 +990,12 @@ function renderPocketCard(a, idx) {
   const bal   = a.balance || 0;
   const balColor = bal < 0 ? 'var(--danger)' : 'var(--text)';
 
-  // Check if a ledger with the same name already exists
-  const hasLedger = state.ledgers.some(l => l.name === a.name);
+  // All ledgers belonging to this pocket
+  const pocketLedgers = state.ledgers.filter(l => l.accountId === a.accountId);
+  const ledgerList = pocketLedgers.map(l => `
+    <button class="pocket-ledger-link" data-pocket-open-ledger="${l.ledgerId}">
+      📒 ${escapeHtml(l.name)}
+    </button>`).join('');
 
   return `
     <div class="pocket-card" style="--pocket-color:${color}" data-account-id="${a.accountId}">
@@ -1013,10 +1017,8 @@ function renderPocketCard(a, idx) {
         <button class="pocket-btn-cancel" data-pocket-cancel="${a.accountId}">取消</button>
       </div>
       <div class="pocket-ledger-row">
-        ${hasLedger
-          ? `<button class="pocket-ledger-link" data-pocket-open-ledger="${escapeAttr(a.name)}">📒 ${escapeHtml(a.name)}記帳本</button>`
-          : `<button class="pocket-ledger-create" data-pocket-create-ledger="${escapeAttr(a.name)}">＋ 建立帳本</button>`
-        }
+        ${ledgerList}
+        <button class="pocket-ledger-create" data-pocket-create-ledger="${a.accountId}" data-pocket-name="${escapeAttr(a.name)}">＋ 建立帳本</button>
       </div>
     </div>`;
 }
@@ -2775,11 +2777,12 @@ document.addEventListener('click', async (event) => {
       await loadAccounts();
       showStatus(mode === 'deposit' ? `已存入 ${formatMoney(amt)}` : `已提取 ${formatMoney(amt)}`);
     } else if (target.dataset.pocketCreateLedger) {
-      const defaultName = target.dataset.pocketCreateLedger;
+      const accountId = target.dataset.pocketCreateLedger;
+      const defaultName = target.dataset.pocketName || '';
       const name = prompt('帳本名稱', defaultName) ?? '';
       if (!name.trim()) return;
       try {
-        await api('/api/ledgers', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+        await api('/api/ledgers', { method: 'POST', body: JSON.stringify({ name: name.trim(), accountId: Number(accountId) }) });
         await loadLedgers();
         await loadAccounts();
         showStatus(`已建立帳本「${name.trim()}」`);
@@ -2787,14 +2790,11 @@ document.addEventListener('click', async (event) => {
         showStatus(err.message || '建立失敗', true);
       }
     } else if (target.dataset.pocketOpenLedger) {
-      const ledgerName = target.dataset.pocketOpenLedger;
-      const ledger = state.ledgers.find(l => l.name === ledgerName);
-      if (ledger) {
-        const sel = document.querySelector('#transaction-filter select[name=ledgerId]');
-        if (sel) sel.value = ledger.ledgerId;
-        setView('transactions');
-        loadTransactions();
-      }
+      const ledgerId = target.dataset.pocketOpenLedger;
+      const sel = document.querySelector('#transaction-filter select[name=ledgerId]');
+      if (sel) sel.value = ledgerId;
+      setView('transactions');
+      loadTransactions();
     } else if (target.dataset.goalDeposit) {
       const amount = prompt('存入金額');
       if (amount && Number(amount) > 0) {

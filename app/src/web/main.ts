@@ -615,7 +615,8 @@ async function startWebServer() {
 
   app.post('/api/ledgers', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const ledger = await ledgerModule.createLedger(await resolveUserId(req), String(req.body.name || ''));
+    const accountId = req.body.accountId ? Number(req.body.accountId) : null;
+    const ledger = await ledgerModule.createLedger(await resolveUserId(req), String(req.body.name || ''), accountId);
     res.json(ledger);
   }));
 
