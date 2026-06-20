@@ -338,7 +338,22 @@
           </form>
         </section>
 
-        <!-- 保留舊 accounts-list 容器讓舊事件不報錯 -->
+        <!-- 功能設定 -->
+        <section class="panel">
+          <h2>功能設定</h2>
+          <label class="feature-toggle-row">
+            <div class="feature-toggle-info">
+              <div class="feature-toggle-title">帳本功能</div>
+              <div class="feature-toggle-desc">啟用後可建立多個帳本，分類管理不同用途的收支記錄</div>
+            </div>
+            <div class="toggle-switch">
+              <input type="checkbox" id="feature-ledger-toggle" role="switch" />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </div>
+          </label>
+        </section>
+
+        <!-- 保留舊容器讓舊事件不報錯 -->
         <div id="accounts-list" hidden></div>
         <canvas id="accounts-donut-chart" hidden></canvas>
       </section>
