@@ -951,57 +951,85 @@ async function getExchangeRates() {
   } catch { return {}; }
 }
 
+const pocketColors = ['#2dd4a0','#fbbf24','#818cf8','#38bdf8','#f87171','#34d399','#c084fc','#60a5fa','#fb923c','#4ade80'];
+
 async function loadAccounts() {
   try {
-    const [data, rates] = await Promise.all([
-      api('/api/accounts'),
-      getExchangeRates(),
-    ]);
-    renderAccounts(data, rates);
-    renderAccountsDonutChart(data.accounts || []);
-  } catch (err) {
-    document.querySelector('#accounts-list').innerHTML = '<div class="row">尚無帳戶資料</div>';
+    const data = await api('/api/accounts');
+    renderAccounts(data);
+  } catch {
+    const g = document.getElementById('pocket-grid');
+    if (g) g.innerHTML = '<div class="row-meta">無法載入口袋資料</div>';
   }
 }
 
-function renderAccounts(data, rates) {
+function renderAccounts(data) {
   const accounts = data.accounts || [];
-  document.querySelector('#account-total-assets').textContent = formatMoney(data.totalAssets);
-  document.querySelector('#account-total-liabilities').textContent = formatMoney(data.totalLiabilities);
-  document.querySelector('#account-net-worth').textContent = formatMoney(data.netWorth);
-  document.querySelector('#account-count').textContent = accounts.length;
-  document.querySelector('#accounts-list').innerHTML =
-    accounts.map(a => renderAccount(a, rates)).join('') || '<div class="row">尚無帳戶</div>';
+  document.getElementById('account-total-assets').textContent    = formatMoney(data.totalAssets);
+  document.getElementById('account-total-liabilities').textContent = formatMoney(data.totalLiabilities);
+  document.getElementById('account-net-worth').textContent       = formatMoney(data.netWorth);
 
-  const fromSel = document.querySelector('#transfer-from');
-  const toSel = document.querySelector('#transfer-to');
-  const opts =
-    '<option value="">選擇帳戶</option>' +
-    accounts.map((a) => `<option value="${a.accountId}">${escapeHtml(a.name)}</option>`).join('');
-  fromSel.innerHTML = opts;
-  toSel.innerHTML = opts;
+  const grid = document.getElementById('pocket-grid');
+  if (grid) {
+    grid.innerHTML = accounts.length
+      ? accounts.map((a, i) => renderPocketCard(a, i)).join('')
+      : '<div class="pocket-empty">還沒有口袋，點「＋ 新增口袋」開始吧</div>';
+  }
+
+  const fromSel = document.getElementById('transfer-from');
+  const toSel   = document.getElementById('transfer-to');
+  const opts = '<option value="">選擇口袋</option>' +
+    accounts.map(a => `<option value="${a.accountId}">${escapeHtml(a.name)}</option>`).join('');
+  if (fromSel) fromSel.innerHTML = opts;
+  if (toSel)   toSel.innerHTML   = opts;
 }
 
-function renderAccount(a, rates) {
-  const typeLabel = accountTypeLabels[a.type] || a.type;
-  const currency = a.currency || 'TWD';
-  let twdNote = '';
-  if (currency !== 'TWD' && rates && rates[currency]) {
-    const twd = Math.round(a.balance * rates[currency]);
-    twdNote = ` <span class="twd-equiv">≈ NT$${twd.toLocaleString()}</span>`;
-  }
+function renderPocketCard(a, idx) {
+  const color = pocketColors[idx % pocketColors.length];
+  const bal   = a.balance || 0;
+  const balColor = bal < 0 ? 'var(--danger)' : 'var(--text)';
   return `
-    <div class="row">
-      <div class="row-main">
-        <div class="row-title">${escapeHtml(a.name)}<span class="account-badge">${escapeHtml(typeLabel)}</span></div>
-        <div class="row-meta">${formatMoney(a.balance)} ${escapeHtml(currency)}${twdNote}</div>
+    <div class="pocket-card" style="--pocket-color:${color}" data-account-id="${a.accountId}">
+      <div class="pocket-card-top">
+        <span class="pocket-name">${escapeHtml(a.name)}</span>
+        <div class="pocket-card-actions">
+          <button class="icon-btn" data-account-edit="${a.accountId}" title="改名">✏</button>
+          <button class="icon-btn danger-icon" data-account-delete="${a.accountId}" title="刪除">✕</button>
+        </div>
       </div>
-      <div class="actions">
-        <button class="secondary" data-account-edit="${a.accountId}">改名</button>
-        <button class="danger" data-account-delete="${a.accountId}">刪除</button>
+      <div class="pocket-balance" style="color:${balColor}">${formatMoney(bal)}</div>
+      <div class="pocket-card-btns">
+        <button class="pocket-btn-deposit" data-pocket-deposit="${a.accountId}">＋ 存入</button>
+        <button class="pocket-btn-withdraw" data-pocket-withdraw="${a.accountId}">－ 提取</button>
+      </div>
+      <div class="pocket-adjust" id="pocket-adjust-${a.accountId}" hidden>
+        <input class="pocket-adjust-input" type="number" min="0.01" step="0.01" placeholder="金額" />
+        <button class="pocket-btn-confirm" data-pocket-confirm="${a.accountId}">確認</button>
+        <button class="pocket-btn-cancel" data-pocket-cancel="${a.accountId}">取消</button>
       </div>
     </div>`;
 }
+
+// ── Pocket deposit / withdraw inline actions ──────────────────────────────
+function showPocketAdjust(accountId, mode) {
+  const box = document.getElementById(`pocket-adjust-${accountId}`);
+  if (!box) return;
+  box.hidden = false;
+  box.dataset.mode = mode;
+  box.querySelector('.pocket-adjust-input').value = '';
+  box.querySelector('.pocket-adjust-input').focus();
+  const confirm = box.querySelector('[data-pocket-confirm]');
+  confirm.style.background = mode === 'deposit' ? 'var(--success)' : 'var(--danger)';
+  confirm.style.color = '#fff';
+}
+
+function hidePocketAdjust(accountId) {
+  const box = document.getElementById(`pocket-adjust-${accountId}`);
+  if (box) box.hidden = true;
+}
+
+// Expose so global click handler can call it
+window._pocketMode = {};
 
 // ── Budget ────────────────────────────────────────────────────────────────
 function updateBudgetMonthLabel() {
@@ -2706,16 +2734,35 @@ document.addEventListener('click', async (event) => {
       }
       return;
     } else if (target.dataset.accountEdit) {
-      const name = prompt('新的帳戶名稱');
+      const name = prompt('新的口袋名稱');
       if (name) {
         await api(`/api/accounts/${target.dataset.accountEdit}`, { method: 'PATCH', body: JSON.stringify({ name }) });
         await loadAccounts();
       }
     } else if (target.dataset.accountDelete) {
-      if (confirm('確定要刪除此帳戶？')) {
+      if (confirm('確定要刪除此口袋？')) {
         await api(`/api/accounts/${target.dataset.accountDelete}`, { method: 'DELETE' });
         await loadAccounts();
       }
+    } else if (target.dataset.pocketDeposit) {
+      showPocketAdjust(target.dataset.pocketDeposit, 'deposit');
+    } else if (target.dataset.pocketWithdraw) {
+      showPocketAdjust(target.dataset.pocketWithdraw, 'withdraw');
+    } else if (target.dataset.pocketCancel) {
+      hidePocketAdjust(target.dataset.pocketCancel);
+    } else if (target.dataset.pocketConfirm) {
+      const id  = target.dataset.pocketConfirm;
+      const box = document.getElementById(`pocket-adjust-${id}`);
+      const amt = Number(box?.querySelector('.pocket-adjust-input')?.value);
+      const mode = box?.dataset.mode;
+      if (!amt || amt <= 0) { showStatus('請輸入有效金額', true); return; }
+      const data = await api('/api/accounts');
+      const acc  = (data.accounts || []).find(a => String(a.accountId) === id);
+      if (!acc) return;
+      const newBalance = mode === 'deposit' ? acc.balance + amt : acc.balance - amt;
+      await api(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify({ balance: newBalance }) });
+      await loadAccounts();
+      showStatus(mode === 'deposit' ? `已存入 ${formatMoney(amt)}` : `已提取 ${formatMoney(amt)}`);
     } else if (target.dataset.goalDeposit) {
       const amount = prompt('存入金額');
       if (amount && Number(amount) > 0) {
@@ -3021,24 +3068,35 @@ document.querySelector('#ledger-create-form').addEventListener('submit', async (
 });
 
 // Account create form
+// 新增口袋：開關 panel
+document.getElementById('pocket-add-btn').addEventListener('click', () => {
+  const panel = document.getElementById('pocket-add-panel');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) panel.querySelector('input[name=name]').focus();
+});
+document.getElementById('pocket-add-cancel').addEventListener('click', () => {
+  document.getElementById('pocket-add-panel').hidden = true;
+});
+
 document.querySelector('#account-create-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   const name = form.name.value.trim();
-  if (!name) { showStatus('請輸入帳戶名稱', true); return; }
+  if (!name) { showStatus('請輸入口袋名稱', true); return; }
   try {
     await api('/api/accounts', {
       method: 'POST',
       body: JSON.stringify({
         name,
-        type: form.type.value,
+        type: 'other',
         balance: Number(form.balance.value || 0),
-        currency: form.currency.value,
+        currency: 'TWD',
       }),
     });
     form.reset();
+    document.getElementById('pocket-add-panel').hidden = true;
     await loadAccounts();
-    showStatus('已新增帳戶');
+    showStatus('已新增口袋');
   } catch (err) {
     showStatus(err.message || '新增失敗', true);
   }

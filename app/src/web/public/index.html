@@ -290,58 +290,57 @@
         </section>
       </section>
 
-      <!-- ── 帳戶 ─────────────────────────────────────────────────────────── -->
+      <!-- ── 帳戶（口袋） ──────────────────────────────────────────────────── -->
       <section id="accounts-view" class="view">
-        <div class="metrics">
-          <div class="metric"><span>總資產</span><strong id="account-total-assets">0</strong></div>
-          <div class="metric"><span>總負債</span><strong id="account-total-liabilities">0</strong></div>
-          <div class="metric"><span>淨資產</span><strong id="account-net-worth">0</strong></div>
-          <div class="metric"><span>帳戶數</span><strong id="account-count">0</strong></div>
-        </div>
-        <section class="panel">
-          <div class="section-header">
-            <h2>帳戶列表</h2>
+        <!-- 總覽列 -->
+        <div class="pocket-overview">
+          <div class="pocket-overview-left">
+            <div class="pocket-overview-label">總餘額</div>
+            <div class="pocket-overview-total" id="account-net-worth">NT$ 0</div>
+            <div class="pocket-overview-sub">
+              資產 <strong id="account-total-assets">0</strong>
+              負債 <strong id="account-total-liabilities" style="color:var(--danger)">0</strong>
+            </div>
           </div>
-          <form id="account-create-form" class="toolbar" style="flex-wrap:wrap;margin-bottom:14px;">
-            <input name="name" placeholder="帳戶名稱" maxlength="40" style="width:150px;" />
-            <select name="type">
-              <option value="bank">銀行</option>
-              <option value="cash">現金</option>
-              <option value="credit">信用卡</option>
-              <option value="investment">投資</option>
-              <option value="other">其他</option>
-            </select>
-            <input name="balance" type="number" placeholder="初始餘額" step="0.01" style="width:120px;" />
-            <select name="currency">
-              <option value="TWD">TWD</option>
-              <option value="USD">USD</option>
-              <option value="JPY">JPY</option>
-              <option value="EUR">EUR</option>
-              <option value="CNY">CNY</option>
-              <option value="HKD">HKD</option>
-            </select>
-            <button type="submit">新增帳戶</button>
+          <button id="pocket-add-btn">＋ 新增口袋</button>
+        </div>
+
+        <!-- 新增口袋表單（預設隱藏） -->
+        <div id="pocket-add-panel" class="panel" hidden>
+          <h2>新增口袋</h2>
+          <form id="account-create-form" class="toolbar" style="flex-wrap:wrap;">
+            <input name="name" placeholder="口袋名稱" maxlength="40" required style="width:160px;" />
+            <input name="balance" type="number" placeholder="初始金額（選填）" step="0.01" style="width:150px;" />
+            <input type="hidden" name="type" value="other" />
+            <input type="hidden" name="currency" value="TWD" />
+            <button type="submit">建立</button>
+            <button type="button" id="pocket-add-cancel" class="secondary">取消</button>
           </form>
-          <div id="accounts-list" class="list"></div>
-        </section>
-        <section class="panel" style="margin-top:16px">
-          <h2>帳戶類型分布</h2>
-          <canvas id="accounts-donut-chart" height="200"></canvas>
-        </section>
+        </div>
+
+        <!-- 口袋卡片格 -->
+        <div id="pocket-grid" class="pocket-grid"></div>
+
+        <!-- 口袋之間轉帳 -->
         <section class="panel">
-          <h2>跨帳戶轉帳</h2>
+          <h2>口袋間轉帳</h2>
           <form id="transfer-form" class="toolbar" style="flex-wrap:wrap;">
             <select id="transfer-from" name="fromAccountId">
-              <option value="">從帳戶</option>
+              <option value="">從哪個口袋</option>
             </select>
+            <span style="color:var(--muted)">→</span>
             <select id="transfer-to" name="toAccountId">
-              <option value="">到帳戶</option>
+              <option value="">轉到哪個口袋</option>
             </select>
-            <input name="amount" type="number" placeholder="金額" min="0.01" step="0.01" style="width:120px;" />
-            <input name="note" type="text" placeholder="備註" style="width:160px;" />
+            <input name="amount" type="number" placeholder="金額" min="0.01" step="0.01" style="width:110px;" />
+            <input name="note" type="text" placeholder="備註（選填）" style="width:140px;" />
             <button type="submit">轉帳</button>
           </form>
         </section>
+
+        <!-- 保留舊 accounts-list 容器讓舊事件不報錯 -->
+        <div id="accounts-list" hidden></div>
+        <canvas id="accounts-donut-chart" hidden></canvas>
       </section>
 
       <!-- ── 帳本 ─────────────────────────────────────────────────────────── -->
