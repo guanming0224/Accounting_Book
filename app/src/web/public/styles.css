@@ -197,13 +197,15 @@ h2 {
   gap: 16px;
 }
 .dashboard-assets-panel {
-  padding: 16px;
+  /* same padding as standard .panel — no override */
 }
 .assets-donut-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 14px;
+  min-height: 240px;
 }
 .assets-legend {
   width: 100%;
@@ -1146,11 +1148,27 @@ tbody tr:hover td {
   border: 1px dashed var(--line);
 }
 .pocket-ledger-create:hover { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+.pocket-ledger-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
 .pocket-ledger-link {
+  flex: 1;
   background: var(--primary-light);
   color: var(--primary);
+  text-align: left;
 }
 .pocket-ledger-link:hover { opacity: 0.8; }
+.pocket-ledger-del {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.pocket-ledger-item:hover .pocket-ledger-del { opacity: 1; }
 
 /* ── Account type badge (kept for fallback) ──────────────────────────────── */
 .account-badge {

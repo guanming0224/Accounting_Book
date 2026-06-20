@@ -993,9 +993,10 @@ function renderPocketCard(a, idx) {
   // All ledgers belonging to this pocket
   const pocketLedgers = state.ledgers.filter(l => l.accountId === a.accountId);
   const ledgerList = pocketLedgers.map(l => `
-    <button class="pocket-ledger-link" data-pocket-open-ledger="${l.ledgerId}">
-      📒 ${escapeHtml(l.name)}
-    </button>`).join('');
+    <div class="pocket-ledger-item">
+      <button class="pocket-ledger-link" data-pocket-open-ledger="${l.ledgerId}">📒 ${escapeHtml(l.name)}</button>
+      <button class="icon-btn danger-icon pocket-ledger-del" data-ledger-delete="${l.ledgerId}" title="刪除帳本">✕</button>
+    </div>`).join('');
 
   return `
     <div class="pocket-card" style="--pocket-color:${color}" data-account-id="${a.accountId}">
@@ -2709,6 +2710,17 @@ document.addEventListener('click', async (event) => {
       const name = prompt('新的帳本名稱', ledger?.name || '');
       if (name) await api(`/api/ledgers/${target.dataset.ledgerRename}/name`, { method: 'PATCH', body: JSON.stringify({ name }) });
       await refreshCurrentView();
+    } else if (target.dataset.ledgerDelete) {
+      if (confirm('確定要刪除此帳本？此操作將同時刪除帳本內所有交易紀錄，且無法復原。')) {
+        try {
+          await api(`/api/ledgers/${target.dataset.ledgerDelete}`, { method: 'DELETE' });
+          await loadLedgers();
+          await loadAccounts();
+          showStatus('已刪除帳本');
+        } catch (err) {
+          showStatus(err.message === 'LEDGER_DELETE_LAST' ? '無法刪除：至少需保留一個帳本' : (err.message || '刪除失敗'), true);
+        }
+      }
     } else if (target.dataset.ledgerArchive) {
       if (confirm('確定要封存這個帳本？')) {
         await api(`/api/ledgers/${target.dataset.ledgerArchive}/archive`, { method: 'PATCH' });
