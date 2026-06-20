@@ -190,10 +190,10 @@ h2 {
   gap: 16px;
 }
 
-/* ── Dashboard top: asset donut (left) + metrics (right) ────────────────── */
-.dashboard-top {
+/* ── Dashboard top 3-column grid ─────────────────────────────────────────── */
+.dashboard-top-grid {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 220px 1fr 1fr;
   gap: 16px;
   align-items: start;
 }
@@ -233,10 +233,61 @@ h2 {
   border-radius: 2px;
   flex-shrink: 0;
 }
+
+/* ── Metric cards 4-col + hover tooltip ──────────────────────────────────── */
 .metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+.metric.metric-tip {
+  position: relative;
+  overflow: visible;
+  cursor: default;
+}
+.metric-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+  padding: 12px 14px;
+  min-width: 180px;
+  pointer-events: none;
+}
+.metric.metric-tip:hover .metric-tooltip {
+  display: block;
+}
+.tip-title {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--text-sm);
+  padding: 3px 0;
+}
+.tip-name {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.tip-val {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .chart-grid {
@@ -517,8 +568,11 @@ tbody tr:hover td {
     text-align: center;
   }
 
-  .dashboard-top {
-    grid-template-columns: 1fr;
+  .dashboard-top-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .dashboard-assets-panel {
+    grid-column: 1 / -1;
   }
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -834,12 +888,12 @@ tbody tr:hover td {
     flex-direction: column;
   }
 
-  .dashboard-top {
+  .dashboard-top-grid {
     grid-template-columns: 1fr;
   }
 
   .metrics {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .bar-row {

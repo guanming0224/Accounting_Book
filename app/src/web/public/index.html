@@ -60,18 +60,49 @@
 
       <!-- ── 總覽 ─────────────────────────────────────────────────────────── -->
       <section id="dashboard-view" class="view active">
-        <div class="dashboard-top">
+        <!-- Top 3-column: assets donut | income-expense chart | category chart -->
+        <div class="dashboard-top-grid">
           <section class="panel dashboard-assets-panel">
             <h2>總資產</h2>
             <div id="dashboard-assets-donut"></div>
           </section>
-          <div class="metrics">
-            <div class="metric"><span>本月進帳</span><strong id="metric-income">0</strong></div>
-            <div class="metric"><span>本月支出</span><strong id="metric-expense">0</strong></div>
-            <div class="metric"><span>本月結餘</span><strong id="metric-balance">0</strong></div>
-            <div class="metric"><span>交易筆數</span><strong id="metric-count">0</strong></div>
+          <section class="panel">
+            <h2>進帳 - 支出淨額</h2>
+            <div id="income-expense-chart" class="chart-box"></div>
+          </section>
+          <section class="panel">
+            <h2>支出類別分布</h2>
+            <div id="expense-category-chart" class="chart-box"></div>
+          </section>
+        </div>
+
+        <!-- Metric cards with hover tooltips -->
+        <div class="metrics">
+          <div class="metric metric-tip">
+            <span>本月進帳</span>
+            <strong id="metric-income">0</strong>
+            <div class="metric-tooltip" id="tip-income"></div>
+          </div>
+          <div class="metric metric-tip">
+            <span>本月支出</span>
+            <strong id="metric-expense">0</strong>
+            <div class="metric-tooltip" id="tip-expense"></div>
+          </div>
+          <div class="metric metric-tip">
+            <span>本月結餘</span>
+            <strong id="metric-balance">0</strong>
+            <div class="metric-tooltip" id="tip-balance"></div>
+          </div>
+          <div class="metric metric-tip" id="metric-count-card">
+            <span>交易筆數</span>
+            <strong id="metric-count">0</strong>
+            <div class="metric-tooltip" id="tip-count">
+              <div class="tip-title">本月每日交易</div>
+              <div id="daily-count-chart"></div>
+            </div>
           </div>
         </div>
+
         <!-- Streak + Forecast cards -->
         <div class="dashboard-meta-row">
           <div class="meta-card" id="streak-card">
@@ -96,33 +127,28 @@
             </div>
           </div>
         </div>
+
         <section id="dashboard-alerts" class="panel" hidden>
           <h2>近期提醒</h2>
           <div id="dashboard-alerts-list" class="list"></div>
         </section>
-        <section id="insights-panel" class="panel" hidden>
-          <h2>💡 財務洞察</h2>
-          <div id="insights-list"></div>
-        </section>
+
+        <!-- 帳本概況 (moved before insights) -->
         <section class="panel">
           <h2>帳本概況</h2>
           <div id="dashboard-ledgers"></div>
         </section>
-        <div class="chart-grid">
-          <section class="panel">
-            <h2>進帳 - 支出淨額</h2>
-            <div id="income-expense-chart" class="chart-box"></div>
-          </section>
-          <section class="panel">
-            <h2>支出類別分布</h2>
-            <div id="expense-category-chart" class="chart-box"></div>
-          </section>
-        </div>
+
+        <!-- 財務洞察 (moved after 帳本概況) -->
+        <section id="insights-panel" class="panel" hidden>
+          <h2>💡 財務洞察</h2>
+          <div id="insights-list"></div>
+        </section>
+
         <section class="panel" id="dashboard-trend-panel">
           <div class="section-header"><h2>近 6 個月趨勢</h2></div>
           <canvas id="dashboard-sparkline" height="120"></canvas>
         </section>
-        <!-- Net worth history chart -->
         <section class="panel" id="net-worth-panel">
           <div class="section-header"><h2>淨資產歷史</h2><span id="net-worth-current" class="badge-value"></span></div>
           <canvas id="net-worth-chart" height="130"></canvas>

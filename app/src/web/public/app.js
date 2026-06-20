@@ -315,19 +315,19 @@ function renderDashboardSparkline(trendData) {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
 async function loadDashboard() {
-  const [dashboard, accountsData] = await Promise.all([
-    api('/api/dashboard'),
-    api('/api/accounts').catch(() => null),
-  ]);
+  const dashboard = await api('/api/dashboard');
   document.querySelector('#metric-income').textContent = formatMoney(dashboard.totalIncome);
   document.querySelector('#metric-expense').textContent = formatMoney(dashboard.totalExpense);
   document.querySelector('#metric-balance').textContent = formatMoney(dashboard.balance);
   document.querySelector('#metric-count').textContent = dashboard.transactionCount || 0;
-  renderDashboardAssetsDonut(accountsData);
+  const ledgerStats = dashboard.ledgerStats || [];
+  renderDashboardAssetsDonut(ledgerStats);
   renderIncomeExpenseChart(dashboard);
   renderExpenseCategoryChart(dashboard.expenseCategories || []);
-  renderLedgerExpenseChart(dashboard.ledgerStats || []);
+  renderLedgerExpenseChart(ledgerStats);
   renderDashboardAlerts(dashboard.alerts);
+  populateMetricTooltips(ledgerStats);
+  setupDailyCountTooltip();
   loadInsights();
   apiFetch('/api/reports/trend?months=6').then(r => r.json()).then(renderDashboardSparkline).catch(() => {});
   loadStreak().catch(() => {});
@@ -335,35 +335,23 @@ async function loadDashboard() {
   loadNetWorthChart().catch(() => {});
 }
 
-function renderDashboardAssetsDonut(data) {
+// 總資產 donut: each segment = one ledger's balance proportion
+function renderDashboardAssetsDonut(ledgerStats) {
   const el = document.getElementById('dashboard-assets-donut');
   if (!el) return;
 
-  if (!data || !data.accounts || !data.accounts.length) {
-    el.innerHTML = '<div class="row-meta" style="padding:12px 0;text-align:center">尚無帳戶資料</div>';
-    return;
-  }
-
-  const typeLabels = { bank: '銀行', cash: '現金', credit: '信用卡', investment: '投資', other: '其他' };
-  const typeMap = new Map();
-  for (const a of data.accounts) {
-    if (a.balance <= 0) continue;
-    const t = a.type || 'other';
-    typeMap.set(t, (typeMap.get(t) || 0) + a.balance);
-  }
-
-  const entries = [...typeMap.entries()].filter(([, v]) => v > 0);
-  const total = entries.reduce((s, [, v]) => s + v, 0);
-  const netWorth = data.netWorth || 0;
-  const netColor = netWorth >= 0 ? 'var(--success)' : 'var(--danger)';
+  const positive = ledgerStats.filter(l => (l.balance || 0) > 0);
+  const total = positive.reduce((s, l) => s + l.balance, 0);
+  const totalAll = ledgerStats.reduce((s, l) => s + (l.balance || 0), 0);
+  const netColor = totalAll >= 0 ? 'var(--success)' : 'var(--danger)';
 
   let bg;
-  if (!entries.length || total <= 0) {
+  if (!positive.length || total <= 0) {
     bg = 'conic-gradient(var(--surface-mid) 0deg 360deg)';
   } else {
     let deg = 0;
-    const parts = entries.map(([, v], i) => {
-      const span = (v / total) * 360;
+    const parts = positive.map((l, i) => {
+      const span = (l.balance / total) * 360;
       const color = chartColors[i % chartColors.length];
       const part = `${color} ${deg.toFixed(1)}deg ${(deg + span).toFixed(1)}deg`;
       deg += span;
@@ -372,23 +360,91 @@ function renderDashboardAssetsDonut(data) {
     bg = `conic-gradient(${parts.join(', ')})`;
   }
 
-  const legend = entries.map(([k, v], i) => `
+  const legend = positive.map((l, i) => `
     <div class="assets-legend-row">
       <span class="swatch" style="background:${chartColors[i % chartColors.length]}"></span>
-      <span class="assets-legend-label">${typeLabels[k] || k}</span>
-      <span class="assets-legend-value">${formatMoney(v)}</span>
+      <span class="assets-legend-label">${escapeHtml(l.name)}</span>
+      <span class="assets-legend-value">${formatMoney(l.balance)}</span>
     </div>`).join('');
 
   el.innerHTML = `
     <div class="assets-donut-wrap">
       <div class="donut donut-sm" style="background:${bg}">
         <div class="donut-center">
-          <span class="donut-center-label">淨資產</span>
-          <strong class="donut-center-value" style="color:${netColor}">${formatMoney(netWorth)}</strong>
+          <span class="donut-center-label">總結餘</span>
+          <strong class="donut-center-value" style="color:${netColor}">${formatMoney(totalAll)}</strong>
         </div>
       </div>
-      <div class="assets-legend">${legend || '<span class="row-meta">暫無資產</span>'}</div>
+      <div class="assets-legend">${legend || '<span class="row-meta">暫無結餘</span>'}</div>
     </div>`;
+}
+
+// Metric tooltips: hover on income/expense/balance → per-ledger breakdown
+function populateMetricTooltips(ledgerStats) {
+  const rows = (field, colorFn) => ledgerStats.map(l => {
+    const v = l[field] || 0;
+    return `<div class="tip-row">
+      <span class="tip-name">${escapeHtml(l.name)}</span>
+      <span class="tip-val" style="color:${colorFn(v)}">${formatMoney(v)}</span>
+    </div>`;
+  }).join('') || '<div class="tip-row"><span class="tip-name">—</span></div>';
+
+  const green = () => 'var(--success)';
+  const red   = () => 'var(--danger)';
+  const sign  = v => v >= 0 ? 'var(--success)' : 'var(--danger)';
+
+  document.getElementById('tip-income').innerHTML  = `<div class="tip-title">各帳本進帳</div>${rows('totalIncome', green)}`;
+  document.getElementById('tip-expense').innerHTML = `<div class="tip-title">各帳本支出</div>${rows('totalExpense', red)}`;
+  document.getElementById('tip-balance').innerHTML = `<div class="tip-title">各帳本結餘</div>${rows('balance', sign)}`;
+}
+
+// Daily count tooltip: fetch on first hover, render SVG sparkline
+function setupDailyCountTooltip() {
+  const card = document.getElementById('metric-count-card');
+  if (!card) return;
+  let loaded = false;
+  card.addEventListener('mouseenter', async () => {
+    if (loaded) return;
+    loaded = true;
+    const el = document.getElementById('daily-count-chart');
+    if (!el) return;
+    try {
+      const now = new Date();
+      const y = now.getFullYear(), m = now.getMonth();
+      const start = toDateInput(new Date(y, m, 1));
+      const end   = toDateInput(new Date(y, m + 1, 0));
+      const data  = await api(`/api/reports/daily-count?start=${start}&end=${end}`);
+      const daysInMonth = new Date(y, m + 1, 0).getDate();
+      const counts = new Array(daysInMonth).fill(0);
+      for (const { date, count } of data) {
+        const d = new Date(date + 'T00:00:00').getDate() - 1;
+        if (d >= 0 && d < daysInMonth) counts[d] = count;
+      }
+      el.innerHTML = renderDailyCountSVG(counts);
+    } catch {
+      loaded = false;
+    }
+  }, { passive: true });
+}
+
+function renderDailyCountSVG(counts) {
+  const W = 190, H = 48, pad = 3;
+  const n = counts.length;
+  const max = Math.max(...counts, 1);
+  const x = i => pad + (i / (n - 1)) * (W - 2 * pad);
+  const y = v => H - pad - (v / max) * (H - 2 * pad);
+  const pts = counts.map((c, i) => `${x(i).toFixed(1)},${y(c).toFixed(1)}`).join(' ');
+  const dots = counts.map((c, i) => c > 0
+    ? `<circle cx="${x(i).toFixed(1)}" cy="${y(c).toFixed(1)}" r="2.5" fill="var(--primary)"/>`
+    : '').join('');
+  const labels = [1, Math.ceil(n / 2), n].map(d =>
+    `<text x="${x(d - 1).toFixed(1)}" y="${H + 11}" fill="var(--muted)" font-size="9" text-anchor="middle">${d}</text>`
+  ).join('');
+  return `<svg viewBox="0 0 ${W} ${H + 14}" width="${W}" height="${H + 14}" style="display:block;overflow:visible">
+    <polyline points="${pts}" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}
+    ${labels}
+  </svg>`;
 }
 
 async function loadStreak() {

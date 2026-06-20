@@ -855,6 +855,23 @@ async function startWebServer() {
     res.json({ ok: true });
   }));
 
+  // ── Daily transaction count in a date range ──────────────────────────────
+  app.get('/api/reports/daily-count', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { startDate, endDate } = parseDateRange(req);
+    const rows = await db.all<{ date: string; count: number }>(
+      `SELECT t.date, COUNT(*) as count
+       FROM transactions t
+       JOIN ledgers l ON t.ledgerId = l.ledgerId
+       WHERE l.userId = ? AND t.date >= ? AND t.date <= ?
+       GROUP BY t.date
+       ORDER BY t.date`,
+      [userId, startDate, endDate]
+    );
+    res.json(rows);
+  }));
+
   // ── Monthly trend (last N months across all active ledgers) ──────────────
   app.get('/api/reports/trend', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
