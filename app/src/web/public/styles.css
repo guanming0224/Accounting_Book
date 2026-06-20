@@ -193,9 +193,8 @@ h2 {
 /* ── Dashboard top 3-column grid ─────────────────────────────────────────── */
 .dashboard-top-grid {
   display: grid;
-  grid-template-columns: 220px 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  align-items: start;
 }
 .dashboard-assets-panel {
   padding: 16px;
