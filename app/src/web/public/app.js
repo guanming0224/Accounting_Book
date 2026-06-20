@@ -989,6 +989,10 @@ function renderPocketCard(a, idx) {
   const color = pocketColors[idx % pocketColors.length];
   const bal   = a.balance || 0;
   const balColor = bal < 0 ? 'var(--danger)' : 'var(--text)';
+
+  // Check if a ledger with the same name already exists
+  const hasLedger = state.ledgers.some(l => l.name === a.name);
+
   return `
     <div class="pocket-card" style="--pocket-color:${color}" data-account-id="${a.accountId}">
       <div class="pocket-card-top">
@@ -1007,6 +1011,12 @@ function renderPocketCard(a, idx) {
         <input class="pocket-adjust-input" type="number" min="0.01" step="0.01" placeholder="金額" />
         <button class="pocket-btn-confirm" data-pocket-confirm="${a.accountId}">確認</button>
         <button class="pocket-btn-cancel" data-pocket-cancel="${a.accountId}">取消</button>
+      </div>
+      <div class="pocket-ledger-row">
+        ${hasLedger
+          ? `<button class="pocket-ledger-link" data-pocket-open-ledger="${escapeAttr(a.name)}">📒 ${escapeHtml(a.name)}記帳本</button>`
+          : `<button class="pocket-ledger-create" data-pocket-create-ledger="${escapeAttr(a.name)}">＋ 建立帳本</button>`
+        }
       </div>
     </div>`;
 }
@@ -2764,6 +2774,27 @@ document.addEventListener('click', async (event) => {
       await api(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify({ balance: newBalance }) });
       await loadAccounts();
       showStatus(mode === 'deposit' ? `已存入 ${formatMoney(amt)}` : `已提取 ${formatMoney(amt)}`);
+    } else if (target.dataset.pocketCreateLedger) {
+      const defaultName = target.dataset.pocketCreateLedger;
+      const name = prompt('帳本名稱', defaultName) ?? '';
+      if (!name.trim()) return;
+      try {
+        await api('/api/ledgers', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+        await loadLedgers();
+        await loadAccounts();
+        showStatus(`已建立帳本「${name.trim()}」`);
+      } catch (err) {
+        showStatus(err.message || '建立失敗', true);
+      }
+    } else if (target.dataset.pocketOpenLedger) {
+      const ledgerName = target.dataset.pocketOpenLedger;
+      const ledger = state.ledgers.find(l => l.name === ledgerName);
+      if (ledger) {
+        const sel = document.querySelector('#transaction-filter select[name=ledgerId]');
+        if (sel) sel.value = ledger.ledgerId;
+        setView('transactions');
+        loadTransactions();
+      }
     } else if (target.dataset.goalDeposit) {
       const amount = prompt('存入金額');
       if (amount && Number(amount) > 0) {

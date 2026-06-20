@@ -1123,6 +1123,35 @@ tbody tr:hover td {
   color: var(--muted);
 }
 
+/* ── Pocket ledger row ───────────────────────────────────────────────────── */
+.pocket-ledger-row {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.pocket-ledger-create,
+.pocket-ledger-link {
+  width: 100%;
+  padding: 6px 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  text-align: center;
+}
+.pocket-ledger-create {
+  background: var(--surface-alt);
+  color: var(--muted);
+  border: 1px dashed var(--line);
+}
+.pocket-ledger-create:hover { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+.pocket-ledger-link {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.pocket-ledger-link:hover { opacity: 0.8; }
+
 /* ── Account type badge (kept for fallback) ──────────────────────────────── */
 .account-badge {
   display: inline-block;
