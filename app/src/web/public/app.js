@@ -2521,6 +2521,7 @@ function setView(view) {
     transactions: '交易',
     accounts: '帳戶',
     ledgers: '帳本',
+    'accounting-settings': '記帳設定',
     budget: '預算管理',
     goals: '儲蓄目標',
     recurring: '定期交易',
@@ -2535,10 +2536,11 @@ function setView(view) {
 
   // Initialize recurring form when navigating to it
   if (view === 'recurring') initRecurringForm();
-  // Load templates when navigating to transactions
-  if (view === 'transactions') {
+  // Load templates + import select when navigating to accounting-settings
+  if (view === 'accounting-settings') {
     loadTemplates();
     initTemplateForm();
+    populateImportLedgerSelect();
   }
   if (view === 'utility') loadUtility();
   if (view === 'calendar') loadCalendar();
@@ -2548,7 +2550,8 @@ async function refreshCurrentView() {
   await loadLedgers();
   if (state.currentView === 'dashboard') await loadDashboard();
   if (state.currentView === 'settings') await loadSettings();
-  if (state.currentView === 'transactions') { await loadTransactions(); await loadTemplates(); }
+  if (state.currentView === 'transactions') await loadTransactions();
+  if (state.currentView === 'accounting-settings') { await loadTemplates(); populateImportLedgerSelect(); }
   if (state.currentView === 'budget') await loadBudgets();
   if (state.currentView === 'reports') await loadReports();
   if (state.currentView === 'accounts') await loadAccounts();
