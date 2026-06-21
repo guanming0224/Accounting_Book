@@ -541,10 +541,10 @@ async function loadNetAmountTrendBg(totalIncome, balance) {
   const canvas = document.getElementById('net-amount-trend-bg');
   if (!canvas) return;
 
-  // Water level ratio: clamp between 5% and 95%
+  // Water level ratio: 0=底 → 1=滿；無進帳時趨近於底
   const ratio = totalIncome > 0
     ? Math.max(0.05, Math.min(0.95, balance / totalIncome))
-    : 0.5;
+    : 0.03;
 
   const dpr = window.devicePixelRatio || 1;
   function resize() {
