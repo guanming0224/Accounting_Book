@@ -522,6 +522,28 @@ h2 {
 }
 :root[data-theme="dark"] .assets-trend-canvas { opacity: 0.22; }
 
+/* 當月淨額 背景柱狀圖 */
+.net-amount-panel {
+  position: relative;
+  overflow: hidden;
+}
+.net-amount-panel h2,
+.net-amount-panel #income-expense-chart {
+  position: relative;
+  z-index: 1;
+}
+
+/* 當月支出分布 背景熱力圖 */
+.expense-cat-panel {
+  position: relative;
+  overflow: hidden;
+}
+.expense-cat-panel h2,
+.expense-cat-panel #expense-category-chart {
+  position: relative;
+  z-index: 1;
+}
+
 .metric {
   padding: 16px 16px 16px 20px;
   border-left: 4px solid var(--primary);

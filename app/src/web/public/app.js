@@ -216,6 +216,13 @@ const formatMoney = (value) =>
 
 const chartColors = ['#1a7f64', '#fbbf24', '#818cf8', '#7c3aed', '#e11d48', '#0891b2', '#6b7280'];
 
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
+}
+
 const today = new Date();
 const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
@@ -324,6 +331,7 @@ async function loadDashboard() {
   renderDashboardAssetsDonut(ledgerStats);
   renderIncomeExpenseChart(dashboard);
   renderExpenseCategoryChart(dashboard.expenseCategories || []);
+  renderExpenseCategoryHeatmapBg(dashboard.expenseCategories || []);
   renderLedgerExpenseChart(ledgerStats);
   renderDashboardAlerts(dashboard.alerts);
   populateMetricTooltips(ledgerStats);
@@ -331,6 +339,7 @@ async function loadDashboard() {
   loadInsights();
   loadForecast().catch(() => {});
   loadAssetsTrendBg().catch(() => {});
+  loadNetAmountTrendBg(dashboard.totalIncome || 0, dashboard.balance || 0).catch(() => {});
 }
 
 // 總資產 donut: same layout as 進帳-支出淨額 and 支出類別分布
@@ -504,6 +513,88 @@ async function loadAssetsTrendBg() {
       scales: { x: { display: false }, y: { display: false } },
       layout: { padding: 0 },
     }
+  });
+}
+
+// ── 當月淨額 背景：每日進帳柱狀 + 剩餘資產水平基準線 ─────────────────────
+let _netAmountBgChart = null;
+async function loadNetAmountTrendBg(totalIncome, balance) {
+  const canvas = document.getElementById('net-amount-trend-bg');
+  if (!canvas) return;
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const start = `${y}-${m}-01`;
+  const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+  const end = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
+  const rows = await apiFetch(`/api/transactions/search?type=income&start=${start}&end=${end}`)
+    .then(r => r.json()).catch(() => []);
+
+  // Aggregate by date
+  const byDay = {};
+  for (const tx of rows) {
+    const d = tx.date || '';
+    if (d) byDay[d] = (byDay[d] || 0) + (tx.amount || 0);
+  }
+  const labels = [], data = [];
+  for (let d = 1; d <= lastDay; d++) {
+    const key = `${y}-${m}-${String(d).padStart(2, '0')}`;
+    labels.push(String(d));
+    data.push(byDay[key] || 0);
+  }
+  const yMax = totalIncome > 0 ? totalIncome : (Math.max(...data) || 1);
+  const floorVal = balance;
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  const barCol = isDark ? 'rgba(0,255,255,0.55)' : 'rgba(26,127,100,0.45)';
+  const lineCol = isDark ? 'rgba(255,0,255,0.85)' : 'rgba(217,119,6,0.75)';
+
+  if (_netAmountBgChart) { _netAmountBgChart.destroy(); _netAmountBgChart = null; }
+  _netAmountBgChart = new Chart(canvas, {
+    data: {
+      labels,
+      datasets: [
+        { type: 'line', data: labels.map(() => floorVal), borderColor: lineCol,
+          borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false, order: 1 },
+        { type: 'bar', data, backgroundColor: barCol, borderRadius: 2,
+          borderSkipped: 'bottom', order: 2 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: { x: { display: false }, y: { display: false, min: 0, max: yMax } },
+      layout: { padding: 0 },
+    }
+  });
+}
+
+// ── 當月支出分布 背景：類別熱力方格 ───────────────────────────────────────
+function renderExpenseCategoryHeatmapBg(categories) {
+  const canvas = document.getElementById('expense-cat-heatmap-bg');
+  if (!canvas || !categories.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth || canvas.parentElement.offsetWidth || 200;
+  const H = canvas.offsetHeight || canvas.parentElement.offsetHeight || 160;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  const total = categories.reduce((s, c) => s + c.total, 0);
+  if (!total) return;
+  const n = categories.length;
+  const cols = Math.ceil(Math.sqrt(n * 1.6));
+  const rows = Math.ceil(n / cols);
+  const cw = W / cols, ch = H / rows, gap = 4;
+  categories.forEach((cat, i) => {
+    const intensity = cat.total / total;
+    const alpha = 0.10 + intensity * 0.60;
+    const color = chartColors[i % chartColors.length];
+    ctx.fillStyle = hexToRgba(color, alpha);
+    const x = (i % cols) * cw, ry = Math.floor(i / cols) * ch;
+    ctx.beginPath();
+    ctx.roundRect(x + gap, ry + gap, cw - gap * 2, ch - gap * 2, 4);
+    ctx.fill();
   });
 }
 
