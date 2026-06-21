@@ -926,7 +926,11 @@ tbody tr:hover td {
 }
 
 /* ── Cyberpunk: 基礎元件覆蓋 ────────────────────────────────────────────── */
+/* 普通按鈕（霓虹底色）：深色文字讓字看得清 */
 :root[data-theme="dark"] button { color: #020205; font-weight: 600; }
+/* 導覽按鈕例外：背景透明，文字要白色 */
+:root[data-theme="dark"] button.nav-button { color: #ffffff; font-weight: 400; background: transparent; }
+:root[data-theme="dark"] button.nav-button.active { color: var(--primary); font-weight: 600; }
 :root[data-theme="dark"] button.secondary { background: var(--surface-alt); color: var(--text); border-color: var(--border); font-weight: 400; }
 :root[data-theme="dark"] button.danger { color: #020205; }
 :root[data-theme="dark"] .fab { color: #020205; font-weight: 700; box-shadow: 0 0 0 1px var(--primary), 0 0 20px rgba(0,255,255,0.45), var(--shadow-3); }
