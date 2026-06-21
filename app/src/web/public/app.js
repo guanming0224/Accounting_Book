@@ -1009,14 +1009,13 @@ function renderPocketCard(a, idx) {
         </div>
       </div>
       <div class="pocket-balance" style="color:${balColor}">${formatMoney(bal)}</div>
+      <div class="pocket-amount-row" id="pocket-amount-${a.accountId}" hidden>
+        <input class="pocket-amount-input" type="number" min="0.01" step="0.01" placeholder="輸入金額"
+               data-pocket-input="${a.accountId}" />
+      </div>
       <div class="pocket-card-btns">
         <button class="pocket-btn-deposit" data-pocket-deposit="${a.accountId}">＋ 存入</button>
         <button class="pocket-btn-withdraw" data-pocket-withdraw="${a.accountId}">－ 提取</button>
-      </div>
-      <div class="pocket-adjust" id="pocket-adjust-${a.accountId}" hidden>
-        <input class="pocket-adjust-input" type="number" min="0.01" step="0.01" placeholder="金額" />
-        <button class="pocket-btn-confirm" data-pocket-confirm="${a.accountId}">確認</button>
-        <button class="pocket-btn-cancel" data-pocket-cancel="${a.accountId}">取消</button>
       </div>
       <div class="pocket-ledger-row">
         ${ledgerList}
@@ -1025,26 +1024,36 @@ function renderPocketCard(a, idx) {
     </div>`;
 }
 
-// ── Pocket deposit / withdraw inline actions ──────────────────────────────
-function showPocketAdjust(accountId, mode) {
-  const box = document.getElementById(`pocket-adjust-${accountId}`);
-  if (!box) return;
-  box.hidden = false;
-  box.dataset.mode = mode;
-  box.querySelector('.pocket-adjust-input').value = '';
-  box.querySelector('.pocket-adjust-input').focus();
-  const confirm = box.querySelector('[data-pocket-confirm]');
-  confirm.style.background = mode === 'deposit' ? 'var(--success)' : 'var(--danger)';
-  confirm.style.color = '#fff';
+// ── Pocket amount input helpers ───────────────────────────────────────────
+function getPocketInput(accountId) {
+  return document.querySelector(`[data-pocket-input="${accountId}"]`);
 }
 
-function hidePocketAdjust(accountId) {
-  const box = document.getElementById(`pocket-adjust-${accountId}`);
-  if (box) box.hidden = true;
+function showPocketInput(accountId) {
+  const row = document.getElementById(`pocket-amount-${accountId}`);
+  if (!row) return;
+  row.hidden = false;
+  const input = row.querySelector('.pocket-amount-input');
+  input.value = '';
+  input.focus();
 }
 
-// Expose so global click handler can call it
-window._pocketMode = {};
+async function commitPocketAdjust(accountId, mode) {
+  const input = getPocketInput(accountId);
+  const amt = Number(input?.value);
+  if (!amt || amt <= 0) {
+    input?.focus();
+    showStatus('請輸入有效金額', true);
+    return;
+  }
+  const data = await api('/api/accounts');
+  const acc  = (data.accounts || []).find(a => String(a.accountId) === String(accountId));
+  if (!acc) return;
+  const newBalance = mode === 'deposit' ? acc.balance + amt : acc.balance - amt;
+  await api(`/api/accounts/${accountId}`, { method: 'PATCH', body: JSON.stringify({ balance: newBalance }) });
+  await loadAccounts();
+  showStatus(mode === 'deposit' ? `已存入 ${formatMoney(amt)}` : `已提取 ${formatMoney(amt)}`);
+}
 
 // ── Budget ────────────────────────────────────────────────────────────────
 function updateBudgetMonthLabel() {
@@ -2771,24 +2780,26 @@ document.addEventListener('click', async (event) => {
         await loadAccounts();
       }
     } else if (target.dataset.pocketDeposit) {
-      showPocketAdjust(target.dataset.pocketDeposit, 'deposit');
+      const id = target.dataset.pocketDeposit;
+      const input = getPocketInput(id);
+      const row = document.getElementById(`pocket-amount-${id}`);
+      if (row?.hidden) {
+        // 第一次按：顯示輸入框
+        showPocketInput(id);
+      } else {
+        // 已有輸入框且值有效：直接存入
+        await commitPocketAdjust(id, 'deposit');
+      }
     } else if (target.dataset.pocketWithdraw) {
-      showPocketAdjust(target.dataset.pocketWithdraw, 'withdraw');
-    } else if (target.dataset.pocketCancel) {
-      hidePocketAdjust(target.dataset.pocketCancel);
-    } else if (target.dataset.pocketConfirm) {
-      const id  = target.dataset.pocketConfirm;
-      const box = document.getElementById(`pocket-adjust-${id}`);
-      const amt = Number(box?.querySelector('.pocket-adjust-input')?.value);
-      const mode = box?.dataset.mode;
-      if (!amt || amt <= 0) { showStatus('請輸入有效金額', true); return; }
-      const data = await api('/api/accounts');
-      const acc  = (data.accounts || []).find(a => String(a.accountId) === id);
-      if (!acc) return;
-      const newBalance = mode === 'deposit' ? acc.balance + amt : acc.balance - amt;
-      await api(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify({ balance: newBalance }) });
-      await loadAccounts();
-      showStatus(mode === 'deposit' ? `已存入 ${formatMoney(amt)}` : `已提取 ${formatMoney(amt)}`);
+      const id = target.dataset.pocketWithdraw;
+      const row = document.getElementById(`pocket-amount-${id}`);
+      if (row?.hidden) {
+        // 第一次按：顯示輸入框
+        showPocketInput(id);
+      } else {
+        // 已有輸入框且值有效：直接提取
+        await commitPocketAdjust(id, 'withdraw');
+      }
     } else if (target.dataset.pocketCreateLedger) {
       const accountId = target.dataset.pocketCreateLedger;
       const defaultName = target.dataset.pocketName || '';
@@ -3113,6 +3124,21 @@ document.querySelector('#ledger-create-form').addEventListener('submit', async (
 });
 
 // 新增口袋：開關 panel
+// Pocket amount input: Enter = deposit, Escape = close
+document.getElementById('pocket-grid').addEventListener('keydown', async (e) => {
+  const input = e.target.closest('.pocket-amount-input');
+  if (!input) return;
+  const id = input.dataset.pocketInput;
+  if (e.key === 'Escape') {
+    const row = document.getElementById(`pocket-amount-${id}`);
+    if (row) { row.hidden = true; input.value = ''; }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    // Default Enter = deposit; user can still click withdraw button
+    await commitPocketAdjust(id, 'deposit');
+  }
+}, { passive: false });
+
 document.getElementById('pocket-add-btn').addEventListener('click', () => {
   const panel = document.getElementById('pocket-add-panel');
   panel.hidden = !panel.hidden;
