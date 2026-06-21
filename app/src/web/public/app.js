@@ -335,47 +335,49 @@ async function loadDashboard() {
   loadNetWorthChart().catch(() => {});
 }
 
-// 總資產 donut: each segment = one ledger's balance proportion
+// 總資產 donut: same layout as 進帳-支出淨額 and 支出類別分布
 function renderDashboardAssetsDonut(ledgerStats) {
   const el = document.getElementById('dashboard-assets-donut');
   if (!el) return;
 
   const positive = ledgerStats.filter(l => (l.balance || 0) > 0);
-  const total = positive.reduce((s, l) => s + l.balance, 0);
+  const total    = positive.reduce((s, l) => s + l.balance, 0);
   const totalAll = ledgerStats.reduce((s, l) => s + (l.balance || 0), 0);
   const netColor = totalAll >= 0 ? 'var(--success)' : 'var(--danger)';
 
   let bg;
   if (!positive.length || total <= 0) {
-    bg = 'conic-gradient(var(--surface-mid) 0deg 360deg)';
+    bg = '';
   } else {
     let deg = 0;
     const parts = positive.map((l, i) => {
-      const span = (l.balance / total) * 360;
+      const span  = (l.balance / total) * 360;
       const color = chartColors[i % chartColors.length];
-      const part = `${color} ${deg.toFixed(1)}deg ${(deg + span).toFixed(1)}deg`;
+      const part  = `${color} ${deg.toFixed(1)}deg ${(deg + span).toFixed(1)}deg`;
       deg += span;
       return part;
     });
     bg = `conic-gradient(${parts.join(', ')})`;
   }
 
-  const legend = positive.map((l, i) => `
-    <div class="assets-legend-row">
-      <span class="swatch" style="background:${chartColors[i % chartColors.length]}"></span>
-      <span class="assets-legend-label">${escapeHtml(l.name)}</span>
-      <span class="assets-legend-value">${formatMoney(l.balance)}</span>
-    </div>`).join('');
+  const legendItems = positive.length
+    ? positive.map((l, i) => `
+        <div class="legend-item">
+          <span class="swatch" style="background:${chartColors[i % chartColors.length]}"></span>
+          <span>${escapeHtml(l.name)}</span>
+          <strong>${formatMoney(l.balance)}</strong>
+        </div>`).join('')
+    : '<div class="row-meta">暫無結餘資料</div>';
 
   el.innerHTML = `
-    <div class="assets-donut-wrap">
-      <div class="donut donut-sm" style="background:${bg}">
+    <div class="donut-layout">
+      <div class="donut" style="${bg ? `background:${bg}` : ''}">
         <div class="donut-center">
-          <span class="donut-center-label">總結餘</span>
-          <strong class="donut-center-value" style="color:${netColor}">${formatMoney(totalAll)}</strong>
+          <span>總結餘</span>
+          <strong style="color:${netColor}">${formatMoney(totalAll)}</strong>
         </div>
       </div>
-      <div class="assets-legend">${legend || '<span class="row-meta">暫無結餘</span>'}</div>
+      <div class="legend">${legendItems}</div>
     </div>`;
 }
 
