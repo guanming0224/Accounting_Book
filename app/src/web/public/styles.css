@@ -855,6 +855,12 @@ tbody tr:hover td {
   color: var(--primary);
 }
 
+/* submit button in toolbar matches date-preset height */
+.toolbar button[type="submit"] {
+  padding: 5px 14px;
+  font-size: var(--text-xs);
+}
+
 /* ── Ledger stat row ─────────────────────────────────────────────────────── */
 .ledger-stat-row strong { font-weight: 600; }
 
