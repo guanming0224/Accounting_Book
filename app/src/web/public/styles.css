@@ -916,7 +916,7 @@ tbody tr:hover td {
   --success-light: rgba(0,255,170,0.10);
   /* ── 側邊欄 ── */
   --sidebar-bg:    #010104;
-  --sidebar-text:  #c8dff5;
+  --sidebar-text:  #ffffff;
   --sidebar-muted: #6690c8;
   /* ── 霓虹輝光陰影 ── */
   --shadow-1: 0 1px 3px rgba(0,0,0,1),   0 0 0 1px var(--border);
