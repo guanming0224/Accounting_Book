@@ -523,8 +523,8 @@ function renderAssetsBgChart() {
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: { x: { display: false }, y: { display: false } },
-      layout: { padding: 0 },
+      scales: { x: { display: false }, y: { display: false, min: 0 } },
+      layout: { padding: { top: 24, left: 0, right: 0, bottom: 0 } },
     }
   });
 }
