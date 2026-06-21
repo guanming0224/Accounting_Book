@@ -329,7 +329,6 @@ async function loadDashboard() {
   populateMetricTooltips(ledgerStats);
   setupDailyCountTooltip();
   loadInsights();
-  loadStreak().catch(() => {});
   loadForecast().catch(() => {});
 }
 
@@ -447,21 +446,6 @@ function renderDailyCountSVG(counts) {
   </svg>`;
 }
 
-async function loadStreak() {
-  try {
-    const resp = await apiFetch('/api/stats/streak');
-    const data = await resp.json();
-    const el = document.getElementById('streak-value');
-    if (!el) return;
-    const streak = data.streak || 0;
-    el.textContent = streak === 0 ? '0 天' : `${streak} 天`;
-    const card = document.getElementById('streak-card');
-    if (card) {
-      card.title = data.lastRecordDate ? `最後記帳：${data.lastRecordDate}` : '';
-      if (streak >= 7) card.classList.add('streak-hot');
-    }
-  } catch { /* ignore */ }
-}
 
 async function loadForecast() {
   try {

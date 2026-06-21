@@ -1102,7 +1102,6 @@ tbody tr:hover td {
   border-color: var(--primary);
 }
 :root[data-theme="dark"] .batch-bar { border-color: var(--border); box-shadow: 0 4px 20px rgba(0,0,0,0.9), 0 0 18px rgba(0,255,255,0.10); }
-:root[data-theme="dark"] .meta-card.streak-hot { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(255,0,255,0.3), 0 0 18px rgba(255,0,255,0.14); }
 
 /* ── Cyberpunk: 頂部導覽 ────────────────────────────────────────────────── */
 :root[data-theme="dark"] .sidebar {
@@ -1563,7 +1562,6 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .meta-card-icon { font-size: 28px; line-height: 1; }
 .meta-card-value { font-size: 20px; font-weight: 700; color: var(--text); }
 .meta-card-label { font-size: 11px; color: var(--text-muted, var(--muted)); margin-top: 2px; text-transform: uppercase; }
-.meta-card.streak-hot { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(217,119,6,0.2); }
 
 /* Net worth badge */
 .badge-value { font-size: 15px; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
