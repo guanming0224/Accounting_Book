@@ -823,24 +823,26 @@ function renderActiveLedger(ledger, index) {
     <div class="ledger-card" style="--ledger-color:${color}">
       <div class="ledger-card-top">
         <div class="ledger-card-name">${escapeHtml(ledger.name)}</div>
+        <div class="pocket-card-actions">
+          <button class="icon-btn" data-ledger-rename="${ledger.ledgerId}" title="改名">✏</button>
+          <button class="icon-btn danger-icon" data-ledger-archive="${ledger.ledgerId}" title="封存">📦</button>
+        </div>
       </div>
       <div class="ledger-card-stats ledger-stat-row" id="ledger-stats-${ledger.ledgerId}">載入中…</div>
-      <div class="ledger-card-actions">
-        <button data-ledger-view="${ledger.ledgerId}" style="flex:1">查看交易</button>
-        <button class="secondary" data-ledger-rename="${ledger.ledgerId}">改名</button>
-        <button class="danger" data-ledger-archive="${ledger.ledgerId}">封存</button>
-      </div>
+      <button data-ledger-view="${ledger.ledgerId}" style="width:100%">查看交易</button>
     </div>`;
 }
 
 function renderArchivedLedger(ledger) {
   return `
     <div class="ledger-card ledger-card-archived">
-      <div class="ledger-card-name">${escapeHtml(ledger.name)}</div>
-      <div class="ledger-card-stats" style="color:var(--muted);font-size:var(--text-xs)">已封存</div>
-      <div class="ledger-card-actions">
-        <button data-ledger-unarchive="${ledger.ledgerId}" style="flex:1">取消封存</button>
+      <div class="ledger-card-top">
+        <div class="ledger-card-name">${escapeHtml(ledger.name)}</div>
+        <div class="pocket-card-actions">
+          <button class="icon-btn" data-ledger-unarchive="${ledger.ledgerId}" title="取消封存">↩</button>
+        </div>
       </div>
+      <div style="font-size:var(--text-xs);color:var(--muted);margin-top:2px">已封存</div>
     </div>`;
 }
 
@@ -3202,19 +3204,23 @@ document.querySelector('#import-csv-form').addEventListener('submit', async (e) 
 });
 
 // Ledger create form
-document.querySelector('#ledger-create-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const name = event.currentTarget.name.value.trim();
-  if (!name) return;
-  try {
-    await api('/api/ledgers', { method: 'POST', body: JSON.stringify({ name }) });
-    event.currentTarget.reset();
-    await refreshCurrentView();
-    showStatus('已新增帳本');
-  } catch (err) {
-    showStatus(err.message || '新增失敗', true);
-  }
-});
+// 帳本新增表單已移除（帳本請從帳戶頁建立）
+const _ledgerCreateForm = document.querySelector('#ledger-create-form');
+if (_ledgerCreateForm) {
+  _ledgerCreateForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const name = event.currentTarget.name.value.trim();
+    if (!name) return;
+    try {
+      await api('/api/ledgers', { method: 'POST', body: JSON.stringify({ name }) });
+      event.currentTarget.reset();
+      await refreshCurrentView();
+      showStatus('已新增帳本');
+    } catch (err) {
+      showStatus(err.message || '新增失敗', true);
+    }
+  });
+}
 
 // 新增口袋：開關 panel
 // Pocket amount input: Enter = deposit, Escape = close

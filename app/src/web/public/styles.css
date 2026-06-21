@@ -1706,6 +1706,15 @@ button.small { padding: 4px 10px; font-size: 12px; }
   opacity: 0.6;
   border-top-color: var(--muted);
 }
+/* icon buttons inside ledger cards follow same hover-reveal as pocket cards */
+.ledger-card:hover .pocket-card-actions { opacity: 1; }
+.ledger-card-archived .pocket-card-actions { opacity: 0.5; }
+.ledger-card-archived:hover .pocket-card-actions { opacity: 1; }
+/* hint text next to section title */
+.ledger-hint {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
 /* Dark mode: neon top-border glow */
 :root[data-theme="dark"] .ledger-card {
   border-color: var(--border);
