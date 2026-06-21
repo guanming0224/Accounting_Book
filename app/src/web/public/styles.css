@@ -535,6 +535,25 @@ h2 {
   z-index: 1;
 }
 
+/* 背景圖表卡片：強制白字 + 陰影，確保可讀性 */
+.net-amount-panel h2,
+.net-amount-panel .legend-item span,
+.net-amount-panel .legend-item strong,
+.net-amount-panel .donut-center span,
+.net-amount-panel .donut-center strong,
+.dashboard-assets-panel h2,
+.dashboard-assets-panel .legend-item span,
+.dashboard-assets-panel .legend-item strong,
+.dashboard-assets-panel .donut-center span,
+.expense-cat-panel h2,
+.expense-cat-panel .legend-item span,
+.expense-cat-panel .legend-item strong,
+.expense-cat-panel .donut-center span,
+.expense-cat-panel .donut-center strong {
+  color: #ffffff !important;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.90);
+}
+
 /* 當月支出分布 背景熱力圖 */
 .expense-cat-panel {
   position: relative;
