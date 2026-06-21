@@ -474,41 +474,54 @@ let _assetsTrendChart = null;
 async function loadAssetsTrendBg() {
   const canvas = document.getElementById('assets-trend-bg');
   if (!canvas) return;
-  const resp = await apiFetch('/api/net-worth/history');
-  const history = await resp.json();
-  // Keep last 30 data points
-  const pts = history.slice(-30);
+
+  // Share history cache with the modal
+  if (!_assetsTrendHistory) {
+    const resp = await apiFetch('/api/net-worth/history');
+    _assetsTrendHistory = await resp.json();
+  }
+  renderAssetsBgChart();
+}
+
+function renderAssetsBgChart() {
+  const canvas = document.getElementById('assets-trend-bg');
+  if (!canvas || !_assetsTrendHistory) return;
+
+  const pts = groupAssetsByRange(_assetsTrendHistory, '30d');
   if (pts.length < 2) return;
-  const isDark = document.documentElement.dataset.theme === 'dark';
-  const lineColor = isDark ? 'rgba(0,255,255,0.9)' : 'rgba(26,127,100,0.9)';
-  const fillStart = isDark ? 'rgba(0,255,255,0.35)' : 'rgba(26,127,100,0.25)';
-  const fillEnd   = isDark ? 'rgba(0,255,255,0.02)' : 'rgba(26,127,100,0.02)';
+
+  const isDark   = document.documentElement.dataset.theme === 'dark';
+  const primary  = isDark ? 'rgba(0,255,255,0.90)' : 'rgba(26,127,100,0.90)';
+  const fillTop  = isDark ? 'rgba(0,255,255,0.30)' : 'rgba(26,127,100,0.22)';
+  const fillBot  = isDark ? 'rgba(0,255,255,0.00)' : 'rgba(26,127,100,0.00)';
+  const isBar    = _assetsTrendStyle === 'bar';
+  const isCurve  = _assetsTrendStyle === 'curve';
 
   if (_assetsTrendChart) { _assetsTrendChart.destroy(); _assetsTrendChart = null; }
 
-  const ctx = canvas.getContext('2d');
-  const grad = ctx.createLinearGradient(0, 0, 0, canvas.offsetHeight || 200);
-  grad.addColorStop(0, fillStart);
-  grad.addColorStop(1, fillEnd);
+  const ctx  = canvas.getContext('2d');
+  const h    = canvas.offsetHeight || 200;
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, fillTop);
+  grad.addColorStop(1, fillBot);
+
+  const dataset = isBar
+    ? { type: 'bar', data: pts.map(p => p.netWorth),
+        backgroundColor: isDark ? 'rgba(0,255,255,0.50)' : 'rgba(26,127,100,0.42)',
+        borderRadius: 2 }
+    : { type: 'line', data: pts.map(p => p.netWorth),
+        fill: true, borderColor: primary, backgroundColor: grad,
+        borderWidth: 2,
+        tension: isCurve ? 0.65 : 0,
+        cubicInterpolationMode: isCurve ? 'default' : undefined,
+        pointRadius: _assetsTrendShowPoints ? 3 : 0,
+        pointBackgroundColor: primary };
 
   _assetsTrendChart = new Chart(canvas, {
-    type: 'line',
-    data: {
-      labels: pts.map(p => p.recordedDate),
-      datasets: [{
-        data: pts.map(p => p.netWorth),
-        fill: true,
-        borderColor: lineColor,
-        backgroundColor: grad,
-        borderWidth: 2,
-        tension: 0.45,
-        pointRadius: 0,
-      }]
-    },
+    type: isBar ? 'bar' : 'line',
+    data: { labels: pts.map(p => p.recordedDate), datasets: [dataset] },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
+      responsive: true, maintainAspectRatio: false, animation: false,
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
       scales: { x: { display: false }, y: { display: false } },
       layout: { padding: 0 },
@@ -822,6 +835,9 @@ function renderAssetsTrendModalChart() {
       }
     }
   });
+
+  // Sync background card chart with current style
+  renderAssetsBgChart();
 }
 
 function closeAssetsTrendModal() {
