@@ -931,6 +931,9 @@ tbody tr:hover td {
 /* 導覽按鈕例外：背景透明，文字要白色 */
 :root[data-theme="dark"] button.nav-button { color: #ffffff; font-weight: 400; background: transparent; }
 :root[data-theme="dark"] button.nav-button.active { color: var(--primary); font-weight: 600; }
+/* Icon 按鈕（深色切換等）：白色圖示 + 霓虹青邊框 */
+:root[data-theme="dark"] button.icon-btn { color: #ffffff; background: transparent; border-color: rgba(0,255,255,0.35); font-weight: 400; }
+:root[data-theme="dark"] button.icon-btn:hover { background: rgba(0,255,255,0.10); border-color: var(--primary); }
 :root[data-theme="dark"] button.secondary { background: var(--surface-alt); color: var(--text); border-color: var(--border); font-weight: 400; }
 :root[data-theme="dark"] button.danger { color: #020205; }
 :root[data-theme="dark"] .fab { color: #020205; font-weight: 700; box-shadow: 0 0 0 1px var(--primary), 0 0 20px rgba(0,255,255,0.45), var(--shadow-3); }
