@@ -781,10 +781,12 @@
             <button class="page-tab" data-assets-range="month">月</button>
             <button class="page-tab" data-assets-range="year">年</button>
           </div>
-          <div style="display:flex;gap:4px;margin-left:auto">
-            <button class="small active" id="assets-style-curve" data-assets-style="curve">曲線</button>
-            <button class="small" id="assets-style-line" data-assets-style="line">折線</button>
-            <button class="small" id="assets-style-bar" data-assets-style="bar">直方</button>
+          <div style="display:flex;gap:4px;margin-left:auto;align-items:center">
+            <button class="small active" data-assets-style="curve">曲線</button>
+            <button class="small" data-assets-style="line">折線</button>
+            <button class="small" data-assets-style="bar">直方</button>
+            <div style="width:1px;height:18px;background:var(--border);margin:0 4px"></div>
+            <button class="small" id="assets-toggle-points" data-assets-points="off" title="顯示/隱藏資料點">● 點</button>
           </div>
         </div>
         <div style="position:relative;height:420px">

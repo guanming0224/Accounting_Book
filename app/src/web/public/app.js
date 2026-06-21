@@ -689,11 +689,16 @@ let _assetsTrendModalChart = null;
 let _assetsTrendHistory    = null;   // cached after first fetch
 let _assetsTrendRange      = '30d';
 let _assetsTrendStyle      = 'curve';
+let _assetsTrendShowPoints = false;
 
 async function openAssetsTrendModal() {
   const overlay = document.getElementById('assets-trend-modal-overlay');
   if (!overlay) return;
   overlay.hidden = false;
+  // Reset point toggle UI
+  _assetsTrendShowPoints = false;
+  const ptBtn = document.getElementById('assets-toggle-points');
+  if (ptBtn) ptBtn.classList.remove('active');
 
   // Fetch & cache history
   if (!_assetsTrendHistory) {
@@ -776,8 +781,11 @@ function renderAssetsTrendModalChart() {
         tension: isCurve ? 0.65 : 0,
         cubicInterpolationMode: isCurve ? 'default' : undefined,
         fill: true,
-        pointRadius: pts.length > 60 ? 0 : 3,
+        pointRadius: _assetsTrendShowPoints ? 4 : 0,
+        pointHoverRadius: _assetsTrendShowPoints ? 6 : 4,
         pointBackgroundColor: primary,
+        pointBorderColor: isDark ? '#020205' : '#fff',
+        pointBorderWidth: 1.5,
       };
 
   _assetsTrendModalChart = new Chart(canvas, {
@@ -3128,6 +3136,15 @@ document.addEventListener('click', async (event) => {
   if (styleBtn) {
     _assetsTrendStyle = styleBtn.dataset.assetsStyle;
     document.querySelectorAll('[data-assets-style]').forEach(b => b.classList.toggle('active', b === styleBtn));
+    renderAssetsTrendModalChart();
+    return;
+  }
+
+  // 總資產彈窗：顯示/隱藏資料點
+  if (target.id === 'assets-toggle-points') {
+    _assetsTrendShowPoints = !_assetsTrendShowPoints;
+    target.classList.toggle('active', _assetsTrendShowPoints);
+    target.dataset.assetsPoints = _assetsTrendShowPoints ? 'on' : 'off';
     renderAssetsTrendModalChart();
     return;
   }
