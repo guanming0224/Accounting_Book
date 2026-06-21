@@ -523,7 +523,15 @@ function renderAssetsBgChart() {
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: { x: { display: false }, y: { display: false, min: 0 } },
+      scales: {
+        x: { display: false },
+        y: {
+          display: false,
+          min: 0,
+          // When all data is 0, force a positive range so the line sits at the bottom
+          suggestedMax: Math.max(1, ...pts.map(p => p.netWorth)) * 1.15,
+        }
+      },
       layout: { padding: { top: 24, left: 0, right: 0, bottom: 0 } },
     }
   });
