@@ -43,7 +43,7 @@ body {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: 52px minmax(0, 1fr);
+  grid-template-rows: 48px minmax(0, 1fr);
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", Arial, sans-serif;
@@ -92,85 +92,98 @@ select {
   color: var(--text);
 }
 
+/* ── Top nav bar ───────────────────────────────────────────────────────────── */
 .sidebar {
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
   padding: 0 14px;
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 4px;
   position: sticky;
   top: 0;
   z-index: 50;
   border-bottom: 1px solid rgba(255, 255, 255, 0.10);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
   padding: 0 14px 0 0;
-  border-bottom: none;
   border-right: 1px solid rgba(255, 255, 255, 0.14);
-  margin-bottom: 0;
-  margin-right: 10px;
+  margin-right: 6px;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
-/* 使用者 ID 在頂部 nav 隱藏，省空間 */
-.brand span#user-label {
-  display: none;
-}
-
-nav {
+.cat-nav {
   display: flex;
   align-items: center;
   gap: 2px;
   flex: 1;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding: 6px 0;
 }
 
-nav::-webkit-scrollbar { display: none; }
+/* Category tab button (top level) */
+.cat-btn {
+  background: transparent;
+  color: var(--sidebar-muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.cat-btn:hover { color: var(--sidebar-text); background: rgba(255,255,255,0.06); }
+.cat-btn.active { color: #fff; background: rgba(255,255,255,0.10); }
 
+/* Dropdown panel */
+.cat-item { position: relative; }
+.cat-dropdown {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--sidebar-bg);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  padding: 6px;
+  min-width: 140px;
+  z-index: 200;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.70);
+}
+.cat-item:hover .cat-dropdown { display: flex; }
+
+/* Sub-page buttons inside dropdown */
 .nav-button {
   white-space: nowrap;
-  width: auto;
-  text-align: center;
-  padding: 6px 10px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 12px;
   font-size: 13px;
-  flex-shrink: 0;
   background: transparent;
   color: var(--sidebar-text);
-  border-radius: 6px;
+  border-radius: 5px;
 }
-
+.nav-button:hover { background: rgba(255,255,255,0.08); }
 .nav-button.active {
-  background: rgba(255, 255, 255, 0.10);
-  border-left: none;
-  padding-left: 10px;
-  font-weight: 600;
+  background: rgba(255,255,255,0.14);
   color: #fff;
-  border-bottom: 2px solid var(--primary);
-  border-radius: 6px 6px 0 0;
-}
-.nav-button:not(.active):hover {
-  background: rgba(255, 255, 255, 0.06);
+  font-weight: 600;
 }
 
-/* nav group labels 在橫向 nav 中改為細分隔線 */
-.nav-group-label {
-  width: 1px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.15);
-  margin: 0 6px;
-  padding: 0;
-  font-size: 0;
+.topnav-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
+  margin-left: auto;
 }
+
+/* nav-group-label no longer used in markup but kept for safety */
+.nav-group-label { display: none; }
 
 .content {
   min-width: 0;
@@ -560,16 +573,12 @@ tbody tr:hover td {
 
 @media (max-width: 860px) {
   body {
-    grid-template-rows: 52px minmax(0, 1fr);
+    grid-template-rows: 48px minmax(0, 1fr);
   }
 
-  nav {
-    gap: 2px;
-  }
-
-  .nav-button {
-    padding: 5px 8px;
-    font-size: 12px;
+  .cat-btn {
+    padding: 5px 10px;
+    font-size: 13px;
   }
 
   .dashboard-top-grid {
@@ -964,8 +973,11 @@ tbody tr:hover td {
 /* 普通按鈕（霓虹底色）：深色文字讓字看得清 */
 :root[data-theme="dark"] button { color: #020205; font-weight: 600; }
 /* 導覽按鈕例外：背景透明，文字要白色 */
-:root[data-theme="dark"] button.nav-button { color: #ffffff; font-weight: 400; background: transparent; }
+:root[data-theme="dark"] button.nav-button { color: var(--sidebar-text); font-weight: 400; background: transparent; }
 :root[data-theme="dark"] button.nav-button.active { color: var(--primary); font-weight: 600; }
+/* 類別按鈕例外 */
+:root[data-theme="dark"] button.cat-btn { color: var(--sidebar-muted); font-weight: 600; background: transparent; }
+:root[data-theme="dark"] button.cat-btn.active { color: var(--primary); background: rgba(0,255,255,0.08); }
 /* Icon 按鈕（深色切換等）：白色圖示 + 霓虹青邊框 */
 :root[data-theme="dark"] button.icon-btn { color: #ffffff; background: transparent; border-color: rgba(0,255,255,0.35); font-weight: 400; }
 :root[data-theme="dark"] button.icon-btn:hover { background: rgba(0,255,255,0.10); border-color: var(--primary); }
@@ -1053,21 +1065,29 @@ tbody tr:hover td {
 :root[data-theme="dark"] .batch-bar { border-color: var(--border); box-shadow: 0 4px 20px rgba(0,0,0,0.9), 0 0 18px rgba(0,255,255,0.10); }
 :root[data-theme="dark"] .meta-card.streak-hot { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(255,0,255,0.3), 0 0 18px rgba(255,0,255,0.14); }
 
-/* ── Cyberpunk: 側邊欄 ──────────────────────────────────────────────────── */
+/* ── Cyberpunk: 頂部導覽 ────────────────────────────────────────────────── */
 :root[data-theme="dark"] .sidebar {
   background: var(--sidebar-bg);
   border-bottom: 1px solid var(--border);
 }
-:root[data-theme="dark"] .nav-button.active {
-  background: rgba(0,255,255,0.08);
-  border-left: none;
-  border-bottom: 2px solid var(--primary);
-  color: var(--primary);
-  padding-left: 10px;
-  border-radius: 6px 6px 0 0;
+:root[data-theme="dark"] .cat-btn { color: var(--sidebar-muted); }
+:root[data-theme="dark"] .cat-btn:hover { color: #ffffff; background: rgba(0,255,255,0.06); }
+:root[data-theme="dark"] .cat-btn.active { color: var(--primary); background: rgba(0,255,255,0.08); }
+:root[data-theme="dark"] .cat-dropdown {
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: var(--shadow-3), 0 0 24px rgba(0,255,255,0.10);
 }
-:root[data-theme="dark"] .nav-button:not(.active):hover { background: rgba(0,255,255,0.05); }
-:root[data-theme="dark"] .nav-group-label { background: rgba(0,255,255,0.15); }
+:root[data-theme="dark"] .nav-button { color: var(--sidebar-text); }
+:root[data-theme="dark"] .nav-button:hover { background: rgba(0,255,255,0.06); }
+:root[data-theme="dark"] .nav-button.active {
+  background: rgba(0,255,255,0.10);
+  color: var(--primary);
+  border-left: none;
+  border-bottom: none;
+  border-radius: 5px;
+}
+:root[data-theme="dark"] .nav-group-label { display: none; }
 
 /* ── Cyberpunk: 圖表與進度條 ────────────────────────────────────────────── */
 :root[data-theme="dark"] .bar-fill { background: var(--primary); box-shadow: 0 0 6px rgba(0,255,255,0.35); }

@@ -2598,6 +2598,14 @@ function updateModalSubcategories() {
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────
+const _viewCatMap = {
+  dashboard: 'accounting', transactions: 'accounting', accounts: 'accounting',
+  ledgers: 'accounting', 'accounting-settings': 'accounting',
+  budget: 'planning', goals: 'planning', recurring: 'planning', reminders: 'planning',
+  'finance-trends': 'analysis', calendar: 'analysis', reports: 'analysis',
+  splits: 'other', utility: 'other', settings: 'other',
+};
+
 function setView(view) {
   state.currentView = view;
   document.querySelectorAll('.nav-button').forEach((button) => {
@@ -2606,6 +2614,9 @@ function setView(view) {
   document.querySelectorAll('.view').forEach((section) => {
     section.classList.toggle('active', section.id === `${view}-view`);
   });
+  // Activate the right category tab
+  const activeCat = _viewCatMap[view] || 'accounting';
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === activeCat));
   const titles = {
     dashboard: '總覽',
     transactions: '交易',
@@ -2735,11 +2746,19 @@ document.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
 
-  // Navigation
+  // Navigation — sub-page button inside dropdown
   const nav = target.closest('.nav-button');
   if (nav) {
     setView(nav.dataset.view);
     await refreshCurrentView();
+    return;
+  }
+
+  // Navigation — category tab button (navigate to first view in category)
+  const catBtn = target.closest('.cat-btn');
+  if (catBtn && !target.closest('.cat-dropdown')) {
+    const firstView = catBtn.closest('.cat-item')?.querySelector('.nav-button')?.dataset.view;
+    if (firstView) { setView(firstView); await refreshCurrentView(); }
     return;
   }
 
