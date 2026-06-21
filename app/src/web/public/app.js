@@ -583,8 +583,12 @@ function renderIncomeExpenseChart(dashboard) {
         </div>
       </div>
       <div class="legend">
-        <div class="legend-item"><span class="swatch" style="background:#1a7f64"></span><span>進帳</span><strong>${formatMoney(income)}</strong></div>
-        <div class="legend-item"><span class="swatch" style="background:#e11d48"></span><span>支出</span><strong>${formatMoney(expense)}</strong></div>
+        <div class="legend-item chart-legend-clickable" data-filter-type="income" title="點擊查看進帳明細">
+          <span class="swatch" style="background:#1a7f64"></span><span>進帳</span><strong>${formatMoney(income)}</strong>
+        </div>
+        <div class="legend-item chart-legend-clickable" data-filter-type="expense" title="點擊查看支出明細">
+          <span class="swatch" style="background:#e11d48"></span><span>支出</span><strong>${formatMoney(expense)}</strong>
+        </div>
         <div class="legend-item"><span class="swatch" style="background:#64748b"></span><span>結餘</span><strong>${formatMoney(dashboard.balance)}</strong></div>
       </div>
     </div>`;
@@ -614,7 +618,7 @@ function renderExpenseCategoryChart(categories) {
           categories
             .map(
               (item, index) => `
-                <div class="legend-item">
+                <div class="legend-item chart-legend-clickable" data-filter-category="${escapeAttr(item.category)}" title="點擊查看「${escapeHtml(item.category)}」明細">
                   <span class="swatch" style="background:${chartColors[index % chartColors.length]}"></span>
                   <span>${escapeHtml(item.category)}</span>
                   <strong>${formatMoney(item.total)}</strong>
@@ -625,6 +629,81 @@ function renderExpenseCategoryChart(categories) {
       </div>
     </div>`;
 }
+
+// ── Chart legend click → transaction detail modal ─────────────────────────
+async function showChartDetailModal(title, params) {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const start = params.start || `${y}-${m}-01`;
+  const end   = params.end   || `${y}-${m}-${String(new Date(y, now.getMonth()+1, 0).getDate()).padStart(2,'0')}`;
+
+  const url = new URL('/api/transactions/search', window.location.origin);
+  url.searchParams.set('start', start);
+  url.searchParams.set('end', end);
+  if (params.type)     url.searchParams.set('type', params.type);
+  if (params.category) url.searchParams.set('category', params.category);
+
+  let rows = [];
+  try {
+    const res = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
+    rows = await res.json();
+  } catch (_) {}
+
+  const bodyHtml = rows.length
+    ? rows.map(t => `
+        <tr>
+          <td>${escapeHtml(String(t.createdAt || '').slice(0,10))}</td>
+          <td>${t.type === 'income' ? '進帳' : '支出'}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums;color:${t.type === 'income' ? 'var(--success)' : 'var(--danger)'}">${t.type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</td>
+          <td>${escapeHtml(t.category || '')}${t.subcategory ? ' · ' + escapeHtml(t.subcategory) : ''}</td>
+          <td>${escapeHtml(t.description || '')}</td>
+        </tr>`).join('')
+    : '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">無資料</td></tr>';
+
+  const existing = document.getElementById('chart-detail-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'chart-detail-modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-box" style="max-width:620px;width:96vw">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="margin:0">${escapeHtml(title)}</h2>
+        <button class="icon-btn" id="chart-detail-close" style="font-size:18px">✕</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:6px 10px;color:var(--muted);border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.06em">日期</th>
+              <th style="text-align:left;padding:6px 10px;color:var(--muted);border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.06em">類型</th>
+              <th style="text-align:right;padding:6px 10px;color:var(--muted);border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.06em">金額</th>
+              <th style="text-align:left;padding:6px 10px;color:var(--muted);border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.06em">分類</th>
+              <th style="text-align:left;padding:6px 10px;color:var(--muted);border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.06em">備註</th>
+            </tr>
+          </thead>
+          <tbody>${bodyHtml}</tbody>
+        </table>
+      </div>
+      <div style="margin-top:16px;text-align:right;color:var(--muted);font-size:12px">共 ${rows.length} 筆</div>
+    </div>`;
+
+  document.body.appendChild(modal);
+  document.getElementById('chart-detail-close').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+// event delegation for chart legend clicks (attached once on DOMContentLoaded)
+document.addEventListener('click', e => {
+  const item = e.target.closest('.chart-legend-clickable');
+  if (!item) return;
+  const type     = item.dataset.filterType;
+  const category = item.dataset.filterCategory;
+  const label    = item.querySelector('span:not(.swatch)')?.textContent || '';
+  showChartDetailModal(`${label} 明細`, { type, category });
+});
 
 function renderLedgerExpenseChart(ledgerStats) {
   const el = document.querySelector('#dashboard-ledgers');
@@ -738,15 +817,16 @@ function renderLedgers() {
     state.archivedLedgers.map(renderArchivedLedger).join('') || '<div class="row">目前沒有封存帳本</div>';
 }
 
-function renderActiveLedger(ledger) {
+function renderActiveLedger(ledger, index) {
+  const color = chartColors[index % chartColors.length];
   return `
-    <div class="row">
-      <div class="row-main">
-        <div class="row-title">${escapeHtml(ledger.name)}</div>
-        <div class="row-meta ledger-stat-row" id="ledger-stats-${ledger.ledgerId}">載入中…</div>
+    <div class="ledger-card" style="--ledger-color:${color}">
+      <div class="ledger-card-top">
+        <div class="ledger-card-name">${escapeHtml(ledger.name)}</div>
       </div>
-      <div class="actions">
-        <button data-ledger-view="${ledger.ledgerId}">查看交易</button>
+      <div class="ledger-card-stats ledger-stat-row" id="ledger-stats-${ledger.ledgerId}">載入中…</div>
+      <div class="ledger-card-actions">
+        <button data-ledger-view="${ledger.ledgerId}" style="flex:1">查看交易</button>
         <button class="secondary" data-ledger-rename="${ledger.ledgerId}">改名</button>
         <button class="danger" data-ledger-archive="${ledger.ledgerId}">封存</button>
       </div>
@@ -755,13 +835,11 @@ function renderActiveLedger(ledger) {
 
 function renderArchivedLedger(ledger) {
   return `
-    <div class="row">
-      <div class="row-main">
-        <div class="row-title">${escapeHtml(ledger.name)}</div>
-        <div class="row-meta">已封存</div>
-      </div>
-      <div class="actions">
-        <button data-ledger-unarchive="${ledger.ledgerId}">取消封存</button>
+    <div class="ledger-card ledger-card-archived">
+      <div class="ledger-card-name">${escapeHtml(ledger.name)}</div>
+      <div class="ledger-card-stats" style="color:var(--muted);font-size:var(--text-xs)">已封存</div>
+      <div class="ledger-card-actions">
+        <button data-ledger-unarchive="${ledger.ledgerId}" style="flex:1">取消封存</button>
       </div>
     </div>`;
 }
