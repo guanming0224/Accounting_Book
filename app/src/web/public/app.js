@@ -761,7 +761,7 @@ function renderAssetsTrendModalChart() {
   const ctx = canvas.getContext('2d');
 
   // Gradient fill
-  const grad = ctx.createLinearGradient(0, 0, 0, 260);
+  const grad = ctx.createLinearGradient(0, 0, 0, 420);
   grad.addColorStop(0, isDark ? 'rgba(0,255,255,0.25)' : 'rgba(26,127,100,0.20)');
   grad.addColorStop(1, 'rgba(0,0,0,0)');
 
