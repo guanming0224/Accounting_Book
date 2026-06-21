@@ -1469,8 +1469,9 @@ function renderPocketCard(a, idx) {
       </div>
       <div class="pocket-balance" style="color:${balColor}">${formatMoney(bal)}</div>
       ${breakdownHtml}
-      <div class="pocket-amount-row" id="pocket-amount-${a.accountId}" hidden>
-        <input class="pocket-amount-input" type="number" min="0.01" step="0.01" placeholder="起始金額"
+      <div class="pocket-amount-row" id="pocket-amount-${a.accountId}" ${bal !== 0 ? 'hidden' : ''}>
+        <input class="pocket-amount-input" type="number" min="0.01" step="0.01"
+               placeholder="${bal === 0 ? '設定初始金額' : '金額'}"
                data-pocket-input="${a.accountId}" />
       </div>
       <div class="pocket-card-btns">
