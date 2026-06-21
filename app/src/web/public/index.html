@@ -48,6 +48,12 @@
             <button class="nav-button" data-view="settings">設定</button>
           </div>
         </div>
+        <div class="cat-item">
+          <button class="cat-btn" data-cat="apis">APIs</button>
+          <div class="cat-dropdown">
+            <button class="nav-button" data-view="mi-home">小米智慧家電</button>
+          </div>
+        </div>
       </nav>
       <div class="topnav-tools">
         <button id="search-btn" class="icon-btn" title="搜尋">🔍</button>
@@ -772,6 +778,57 @@
         <section class="panel">
           <h2>匯率資訊 (以 TWD 為基準)</h2>
           <div id="exchange-rates-panel" class="text-muted" style="font-size:13px">載入中...</div>
+        </section>
+      </section>
+      <!-- ── 小米智慧家電 ──────────────────────────────────────────────── -->
+      <section id="mi-home-view" class="view">
+        <!-- 裝置設定 -->
+        <section class="panel">
+          <div class="section-header">
+            <h2>裝置設定</h2>
+            <button id="mi-add-device-btn" class="secondary">+ 新增裝置</button>
+          </div>
+          <form id="mi-device-form" class="inline-form" style="display:none;flex-wrap:wrap;gap:8px;margin-top:12px">
+            <input id="mi-device-name" type="text" placeholder="裝置名稱（如：客廳插座）" maxlength="40" required style="flex:1;min-width:130px" />
+            <input id="mi-device-ip" type="text" placeholder="IP 位址（如：192.168.1.100）" required style="flex:1;min-width:150px" />
+            <input id="mi-device-token" type="text" placeholder="裝置 Token（32位十六進位）" maxlength="64" required style="flex:2;min-width:200px" />
+            <button type="submit">新增</button>
+            <button type="button" id="mi-device-form-cancel" class="secondary">取消</button>
+          </form>
+          <div id="mi-devices-list" style="margin-top:12px"></div>
+        </section>
+
+        <!-- 即時數據 -->
+        <section class="panel">
+          <div class="section-header">
+            <h2>即時用電</h2>
+            <button id="mi-refresh-btn" class="secondary">↺ 更新</button>
+          </div>
+          <div id="mi-live-cards" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px"></div>
+        </section>
+
+        <!-- 總結 -->
+        <section class="panel" id="mi-summary-panel" style="display:none">
+          <h2>總計用電量</h2>
+          <div id="mi-summary-content" style="display:flex;gap:24px;flex-wrap:wrap;margin-top:8px"></div>
+        </section>
+
+        <!-- 當周趨勢 -->
+        <section class="panel">
+          <div class="section-header"><h2>當周每日用電 (kWh)</h2></div>
+          <canvas id="mi-weekly-chart" height="160"></canvas>
+        </section>
+
+        <!-- 當月趨勢 -->
+        <section class="panel">
+          <div class="section-header"><h2>當月每日用電 (kWh)</h2></div>
+          <canvas id="mi-monthly-chart" height="160"></canvas>
+        </section>
+
+        <!-- 歷史趨勢 -->
+        <section class="panel">
+          <div class="section-header"><h2>歷史每日用電趨勢 (近 90 天)</h2></div>
+          <canvas id="mi-history-chart" height="160"></canvas>
         </section>
       </section>
     </main>

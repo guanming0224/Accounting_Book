@@ -1890,6 +1890,112 @@ async function startWebServer() {
     res.json({ ok: true, deleted: result.changes > 0 });
   }));
 
+  // ── Mi Home 小米智慧家電 ──────────────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const miio = require('miio');
+
+  app.get('/api/mi-home/devices', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const devices = await db.all<any>('SELECT id, userId, name, ip, createdAt FROM mi_devices WHERE userId = ? ORDER BY createdAt ASC', [userId]);
+    res.json(devices);
+  }));
+
+  app.post('/api/mi-home/devices', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { name, ip, token } = req.body;
+    if (!name || !ip || !token) throw new Error('NAME_IP_TOKEN_REQUIRED');
+    const result = await db.run(
+      'INSERT INTO mi_devices (userId, name, ip, token) VALUES (?, ?, ?, ?)',
+      [userId, String(name), String(ip), String(token)]
+    );
+    res.json(await db.get<any>('SELECT id, userId, name, ip, createdAt FROM mi_devices WHERE id = ?', [result.lastID]));
+  }));
+
+  app.delete('/api/mi-home/devices/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const result = await db.run('DELETE FROM mi_devices WHERE id = ? AND userId = ?', [Number(req.params.id), userId]);
+    if (!result.changes) throw new Error('DEVICE_NOT_FOUND');
+    res.json({ ok: true });
+  }));
+
+  app.get('/api/mi-home/devices/:id/live', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const device = await db.get<any>('SELECT * FROM mi_devices WHERE id = ? AND userId = ?', [Number(req.params.id), userId]);
+    if (!device) throw new Error('DEVICE_NOT_FOUND');
+
+    let watts = 0;
+    let totalKwh = 0;
+    let connected = false;
+    try {
+      const miDevice = await miio.device({ address: device.ip, token: device.token });
+      try {
+        const props = await (miDevice as any).loadProperties(['power_consume_rate', 'power_cost']);
+        watts = Number(props.power_consume_rate) || 0;
+        totalKwh = Number(props.power_cost) || 0;
+      } catch {
+        try {
+          const props = await (miDevice as any).loadProperties(['electric_power', 'power_cost']);
+          watts = (Number(props.electric_power) || 0) / 100;
+          totalKwh = Number(props.power_cost) || 0;
+        } catch { /* device may not support energy reporting */ }
+      }
+      await (miDevice as any).destroy();
+      connected = true;
+    } catch { /* device unreachable */ }
+
+    if (connected) {
+      await db.run('INSERT INTO mi_power_readings (deviceId, watts, totalKwh) VALUES (?, ?, ?)', [device.id, watts, totalKwh]);
+    }
+    res.json({ id: device.id, name: device.name, watts, totalKwh, estimatedHourlyKwh: parseFloat((watts / 1000).toFixed(4)), connected });
+  }));
+
+  app.get('/api/mi-home/stats', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const deviceIds = (await db.all<any>('SELECT id FROM mi_devices WHERE userId = ?', [userId])).map((d: any) => d.id);
+    if (!deviceIds.length) { res.json({ weekly: [], monthly: [], history: [] }); return; }
+    const placeholders = deviceIds.map(() => '?').join(',');
+
+    const weekly = await db.all<any>(
+      `SELECT strftime('%Y-%m-%d', recordedAt) as day,
+              ROUND(AVG(watts), 2) as avgWatts,
+              ROUND(MAX(totalKwh) - MIN(totalKwh), 4) as kwhDelta
+       FROM mi_power_readings
+       WHERE deviceId IN (${placeholders})
+         AND recordedAt >= datetime('now', '-7 days')
+       GROUP BY day ORDER BY day ASC`,
+      deviceIds
+    );
+
+    const monthly = await db.all<any>(
+      `SELECT strftime('%Y-%m-%d', recordedAt) as day,
+              ROUND(AVG(watts), 2) as avgWatts,
+              ROUND(MAX(totalKwh) - MIN(totalKwh), 4) as kwhDelta
+       FROM mi_power_readings
+       WHERE deviceId IN (${placeholders})
+         AND strftime('%Y-%m', recordedAt) = strftime('%Y-%m', 'now')
+       GROUP BY day ORDER BY day ASC`,
+      deviceIds
+    );
+
+    const history = await db.all<any>(
+      `SELECT strftime('%Y-%m-%d', recordedAt) as day,
+              ROUND(AVG(watts), 2) as avgWatts,
+              ROUND(MAX(totalKwh) - MIN(totalKwh), 4) as kwhDelta
+       FROM mi_power_readings
+       WHERE deviceId IN (${placeholders})
+         AND recordedAt >= datetime('now', '-90 days')
+       GROUP BY day ORDER BY day ASC`,
+      deviceIds
+    );
+
+    res.json({ weekly, monthly, history });
+  }));
+
   const publicPath = path.resolve(process.cwd(), 'app/src/web/public');
   app.use(express.static(publicPath));
   app.get(/.*/, (_req, res) => res.sendFile(path.join(publicPath, 'index.html')));

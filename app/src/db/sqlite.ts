@@ -334,6 +334,30 @@ export class Database {
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_utility_meters_user ON utility_meters(userId)`);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_utility_readings_meter ON utility_readings(meterId, readDate)`);
 
+        // Mi Home smart devices
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS mi_devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            ip TEXT NOT NULL,
+            token TEXT NOT NULL,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (userId) REFERENCES users(userId)
+          )
+        `);
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS mi_power_readings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            deviceId INTEGER NOT NULL,
+            watts REAL NOT NULL,
+            totalKwh REAL NOT NULL,
+            recordedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (deviceId) REFERENCES mi_devices(id) ON DELETE CASCADE
+          )
+        `);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_mi_readings_device_time ON mi_power_readings(deviceId, recordedAt)`);
+
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_subcategories_category ON user_subcategories(categoryId)`, (err) => {
           if (err) reject(err);
           else resolve();

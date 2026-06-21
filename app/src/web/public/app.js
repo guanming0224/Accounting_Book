@@ -3079,6 +3079,7 @@ const _viewCatMap = {
   budget: 'planning', goals: 'planning', recurring: 'planning', reminders: 'planning',
   'finance-trends': 'analysis', calendar: 'analysis', reports: 'analysis',
   splits: 'other', utility: 'other', settings: 'other',
+  'mi-home': 'apis',
 };
 
 function setView(view) {
@@ -3110,6 +3111,7 @@ function setView(view) {
     utility: '水電用量追蹤',
     settings: '設定',
     calendar: '記帳月曆',
+    'mi-home': '小米智慧家電',
   };
   document.querySelector('#page-title').textContent = titles[view] || view;
 
@@ -3124,11 +3126,147 @@ function setView(view) {
   if (view === 'utility') loadUtility();
   if (view === 'calendar') loadCalendar();
   if (view === 'finance-trends') loadFinanceTrends();
+  if (view === 'mi-home') loadMiHome();
 }
 
 function loadFinanceTrends() {
   apiFetch('/api/reports/trend?months=6').then(r => r.json()).then(renderDashboardSparkline).catch(() => {});
   loadNetWorthChart().catch(() => {});
+}
+
+// ── Mi Home 小米智慧家電 ───────────────────────────────────────────────────
+async function loadMiHome() {
+  await renderMiDevicesList();
+  await refreshMiLiveData();
+  await renderMiCharts();
+}
+
+async function renderMiDevicesList() {
+  const listEl = document.getElementById('mi-devices-list');
+  if (!listEl) return;
+  const devices = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
+  if (!devices.length) {
+    listEl.innerHTML = '<p class="text-muted" style="font-size:13px">尚無裝置，點擊「新增裝置」開始設定</p>';
+    return;
+  }
+  listEl.innerHTML = devices.map(d => `
+    <div class="row" data-mi-device-id="${d.id}">
+      <div class="row-main">
+        <div class="row-title">${d.name}</div>
+        <div class="row-meta">${d.ip}</div>
+      </div>
+      <button class="danger mi-delete-device-btn" data-id="${d.id}">刪除</button>
+    </div>
+  `).join('');
+  listEl.querySelectorAll('.mi-delete-device-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('確定要刪除這台裝置嗎？')) return;
+      await apiFetch(`/api/mi-home/devices/${btn.dataset.id}`, { method: 'DELETE' });
+      await loadMiHome();
+    });
+  });
+}
+
+async function refreshMiLiveData() {
+  const liveEl = document.getElementById('mi-live-cards');
+  const summaryPanel = document.getElementById('mi-summary-panel');
+  const summaryEl = document.getElementById('mi-summary-content');
+  if (!liveEl) return;
+
+  const devices = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
+  if (!devices.length) {
+    liveEl.innerHTML = '<p class="text-muted" style="font-size:13px">請先新增裝置</p>';
+    if (summaryPanel) summaryPanel.style.display = 'none';
+    return;
+  }
+
+  liveEl.innerHTML = devices.map(d => `
+    <div class="panel" style="flex:1;min-width:200px;padding:16px" id="mi-live-${d.id}">
+      <div style="font-weight:600;margin-bottom:8px">${d.name}</div>
+      <div class="text-muted" style="font-size:13px">載入中...</div>
+    </div>
+  `).join('');
+
+  let totalKwh = 0;
+  let totalWatts = 0;
+  await Promise.all(devices.map(async d => {
+    const card = document.getElementById(`mi-live-${d.id}`);
+    try {
+      const data = await apiFetch(`/api/mi-home/devices/${d.id}/live`).then(r => r.json());
+      totalWatts += data.watts || 0;
+      totalKwh += data.totalKwh || 0;
+      if (card) {
+        card.innerHTML = `
+          <div style="font-weight:600;margin-bottom:10px">${d.name}</div>
+          ${data.connected ? '' : '<div class="badge" style="background:#e11d48;color:#fff;font-size:11px;margin-bottom:8px">離線</div>'}
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
+            <div style="display:flex;justify-content:space-between"><span class="text-muted">當前瓦數</span><strong>${data.watts.toFixed(1)} W</strong></div>
+            <div style="display:flex;justify-content:space-between"><span class="text-muted">估算 1h 用電</span><strong>${data.estimatedHourlyKwh.toFixed(4)} kWh</strong></div>
+            <div style="display:flex;justify-content:space-between"><span class="text-muted">累計用電</span><strong>${data.totalKwh.toFixed(3)} kWh</strong></div>
+          </div>
+        `;
+      }
+    } catch {
+      if (card) card.innerHTML = `<div style="font-weight:600;margin-bottom:8px">${d.name}</div><div class="text-muted" style="font-size:13px">無法取得資料</div>`;
+    }
+  }));
+
+  if (summaryPanel && summaryEl && devices.length) {
+    summaryPanel.style.display = '';
+    summaryEl.innerHTML = `
+      <div><div class="text-muted" style="font-size:12px">所有裝置合計瓦數</div><strong style="font-size:20px">${totalWatts.toFixed(1)} W</strong></div>
+      <div><div class="text-muted" style="font-size:12px">所有裝置合計累計用電</div><strong style="font-size:20px">${totalKwh.toFixed(3)} kWh</strong></div>
+      <div><div class="text-muted" style="font-size:12px">合計估算 1h 用電</div><strong style="font-size:20px">${(totalWatts / 1000).toFixed(4)} kWh</strong></div>
+    `;
+  }
+}
+
+async function renderMiCharts() {
+  const stats = await apiFetch('/api/mi-home/stats').then(r => r.json()).catch(() => ({ weekly: [], monthly: [], history: [] }));
+  const textColor = document.body.classList.contains('dark') ? '#ccc' : '#555';
+
+  const barCfg = (labels, data, label) => ({
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label,
+        data,
+        backgroundColor: '#1a7f6466',
+        borderColor: '#1a7f64',
+        borderWidth: 1.5,
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} kWh` } } },
+      scales: { y: { ticks: { color: textColor, callback: v => `${v}` }, grid: { color: textColor + '22' } }, x: { ticks: { color: textColor, maxTicksLimit: 14 } } },
+    },
+  });
+
+  mkChart('mi-weekly-chart', barCfg(stats.weekly.map(d => d.day.slice(5)), stats.weekly.map(d => d.kwhDelta || 0), '用電 kWh'));
+  mkChart('mi-monthly-chart', barCfg(stats.monthly.map(d => d.day.slice(5)), stats.monthly.map(d => d.kwhDelta || 0), '用電 kWh'));
+  mkChart('mi-history-chart', {
+    type: 'line',
+    data: {
+      labels: stats.history.map(d => d.day.slice(5)),
+      datasets: [{
+        label: '平均瓦數 (W)',
+        data: stats.history.map(d => d.avgWatts || 0),
+        borderColor: '#2dd4a0',
+        backgroundColor: '#2dd4a033',
+        fill: true,
+        tension: 0.4,
+        pointRadius: stats.history.length > 30 ? 0 : 3,
+      }],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: textColor, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.raw} W` } } },
+      scales: { y: { ticks: { color: textColor }, grid: { color: textColor + '22' } }, x: { ticks: { color: textColor, maxTicksLimit: 20 } } },
+    },
+  });
 }
 
 async function refreshCurrentView() {
@@ -4174,6 +4312,34 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
   document.getElementById('calendar-grid')?.addEventListener('click', e => {
     const cell = e.target.closest('[data-cal-date]');
     if (cell) showCalDayDetail(cell.dataset.calDate, _calDayMap.get(cell.dataset.calDate));
+  });
+
+  // Mi Home device form bindings
+  document.getElementById('mi-add-device-btn')?.addEventListener('click', () => {
+    const form = document.getElementById('mi-device-form');
+    if (form) form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+  });
+  document.getElementById('mi-device-form-cancel')?.addEventListener('click', () => {
+    const form = document.getElementById('mi-device-form');
+    if (form) form.style.display = 'none';
+  });
+  document.getElementById('mi-device-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('mi-device-name').value.trim();
+    const ip = document.getElementById('mi-device-ip').value.trim();
+    const token = document.getElementById('mi-device-token').value.trim();
+    try {
+      await apiFetch('/api/mi-home/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, ip, token }) });
+      document.getElementById('mi-device-form').style.display = 'none';
+      document.getElementById('mi-device-form').reset();
+      await loadMiHome();
+    } catch (err) {
+      showStatus(err.message || '新增裝置失敗', true);
+    }
+  });
+  document.getElementById('mi-refresh-btn')?.addEventListener('click', async () => {
+    await refreshMiLiveData();
+    await renderMiCharts();
   });
 
   if ('serviceWorker' in navigator) {
