@@ -704,7 +704,22 @@ async function openAssetsTrendModal() {
 }
 
 function groupAssetsByRange(history, range) {
-  if (range === '30d') return history.slice(-30);
+  if (range === '30d') {
+    // Build exactly 30 calendar days ending today, forward-fill missing days
+    const byDate = {};
+    for (const h of history) byDate[h.recordedDate] = h.netWorth;
+    const today = new Date();
+    let lastVal = history[0]?.netWorth ?? 0;
+    const pts = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10); // YYYY-MM-DD
+      if (byDate[key] !== undefined) lastVal = byDate[key];
+      pts.push({ recordedDate: key.slice(5), netWorth: lastVal }); // MM-DD label
+    }
+    return pts;
+  }
 
   const map = new Map();
   for (const h of history) {
@@ -772,7 +787,8 @@ function renderAssetsTrendModalChart() {
       scales: {
         x: { ticks: { color: textColor, maxTicksLimit: 8, font: { size: 11 } },
              grid:  { color: gridColor } },
-        y: { ticks: { color: textColor, font: { size: 11 },
+        y: { min: 0,
+             ticks: { color: textColor, font: { size: 11 },
                callback: v => `NT$${(v/1000).toFixed(0)}k` },
              grid: { color: gridColor } }
       }
