@@ -114,13 +114,31 @@ function requireAuth(req: Request, res: Response): boolean {
   return false;
 }
 
+// Returns accounts with computedBalance = base balance + net of linked ledger transactions
+async function getAccountsWithComputedBalance(userId: number): Promise<any[]> {
+  return db.all<any>(`
+    SELECT a.*,
+      a.balance + COALESCE((
+        SELECT SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE -t.amount END)
+        FROM ledgers l
+        JOIN transactions t ON t.ledgerId = l.ledgerId
+        WHERE l.accountId = a.accountId AND COALESCE(l.isArchived, 0) = 0
+      ), 0) AS computedBalance
+    FROM accounts a
+    WHERE a.userId = ?
+    ORDER BY a.createdAt ASC
+  `, [userId]);
+}
+
 async function recordNetWorthSnapshot(userId: number): Promise<void> {
   const { year, month, day } = getTaipeiTodayParts();
   const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  const accounts = await db.all<any>('SELECT * FROM accounts WHERE userId = ?', [userId]);
+  const accounts = await getAccountsWithComputedBalance(userId);
   if (!accounts.length) return;
-  const totalAssets = accounts.filter((a: any) => a.balance >= 0).reduce((s: number, a: any) => s + a.balance, 0);
-  const totalLiabilities = accounts.filter((a: any) => a.balance < 0).reduce((s: number, a: any) => s + Math.abs(a.balance), 0);
+  const totalAssets = accounts.filter((a: any) => (a.computedBalance ?? a.balance) >= 0)
+    .reduce((s: number, a: any) => s + (a.computedBalance ?? a.balance), 0);
+  const totalLiabilities = accounts.filter((a: any) => (a.computedBalance ?? a.balance) < 0)
+    .reduce((s: number, a: any) => s + Math.abs(a.computedBalance ?? a.balance), 0);
   const netWorth = totalAssets - totalLiabilities;
   await db.run(
     `INSERT INTO net_worth_snapshots (userId, totalAssets, totalLiabilities, netWorth, recordedDate)
@@ -1005,9 +1023,11 @@ async function startWebServer() {
   app.get('/api/accounts', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
-    const accounts = await db.all<any>('SELECT * FROM accounts WHERE userId = ? ORDER BY createdAt ASC', [userId]);
-    const totalAssets = accounts.filter((a: any) => a.balance >= 0).reduce((s: number, a: any) => s + a.balance, 0);
-    const totalLiabilities = accounts.filter((a: any) => a.balance < 0).reduce((s: number, a: any) => s + Math.abs(a.balance), 0);
+    const accounts = await getAccountsWithComputedBalance(userId);
+    const totalAssets = accounts.filter((a: any) => (a.computedBalance ?? a.balance) >= 0)
+      .reduce((s: number, a: any) => s + (a.computedBalance ?? a.balance), 0);
+    const totalLiabilities = accounts.filter((a: any) => (a.computedBalance ?? a.balance) < 0)
+      .reduce((s: number, a: any) => s + Math.abs(a.computedBalance ?? a.balance), 0);
     res.json({ accounts, totalAssets, totalLiabilities, netWorth: totalAssets - totalLiabilities });
   }));
 

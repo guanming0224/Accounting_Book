@@ -988,16 +988,27 @@ function renderAccounts(data) {
 
 function renderPocketCard(a, idx) {
   const color = pocketColors[idx % pocketColors.length];
-  const bal   = a.balance || 0;
+  // computedBalance = base balance + net of linked ledger transactions (from API)
+  const bal      = a.computedBalance ?? a.balance ?? 0;
+  const baseBal  = a.balance ?? 0;
   const balColor = bal < 0 ? 'var(--danger)' : 'var(--text)';
 
   // All ledgers belonging to this pocket
   const pocketLedgers = state.ledgers.filter(l => l.accountId === a.accountId);
+  const hasLinkedLedgers = pocketLedgers.length > 0;
   const ledgerList = pocketLedgers.map(l => `
     <div class="pocket-ledger-item">
       <button class="pocket-ledger-link" data-pocket-open-ledger="${l.ledgerId}">📒 ${escapeHtml(l.name)}</button>
       <button class="icon-btn danger-icon pocket-ledger-del" data-ledger-delete="${l.ledgerId}" title="刪除帳本">✕</button>
     </div>`).join('');
+
+  // Show base balance breakdown only when linked ledgers exist and values differ
+  const txNet = bal - baseBal;
+  const breakdownHtml = hasLinkedLedgers ? `
+    <div class="pocket-balance-breakdown">
+      <span>起始 ${formatMoney(baseBal)}</span>
+      <span class="${txNet >= 0 ? 'income-color' : 'expense-color'}">${txNet >= 0 ? '＋' : ''}${formatMoney(txNet)} 帳本</span>
+    </div>` : '';
 
   return `
     <div class="pocket-card" style="--pocket-color:${color}" data-account-id="${a.accountId}">
@@ -1009,8 +1020,9 @@ function renderPocketCard(a, idx) {
         </div>
       </div>
       <div class="pocket-balance" style="color:${balColor}">${formatMoney(bal)}</div>
+      ${breakdownHtml}
       <div class="pocket-amount-row" id="pocket-amount-${a.accountId}" hidden>
-        <input class="pocket-amount-input" type="number" min="0.01" step="0.01" placeholder="輸入金額"
+        <input class="pocket-amount-input" type="number" min="0.01" step="0.01" placeholder="起始金額"
                data-pocket-input="${a.accountId}" />
       </div>
       <div class="pocket-card-btns">

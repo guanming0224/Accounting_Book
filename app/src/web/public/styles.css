@@ -1042,6 +1042,13 @@ tbody tr:hover td {
   letter-spacing: -0.5px;
   line-height: 1;
 }
+.pocket-balance-breakdown {
+  display: flex;
+  gap: 10px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: 3px;
+}
 .pocket-card-btns {
   display: flex;
   gap: 8px;
