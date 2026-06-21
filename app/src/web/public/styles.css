@@ -500,6 +500,28 @@ h2 {
   box-shadow: var(--shadow-1);
 }
 
+/* 總資產卡片背景趨勢圖 */
+.dashboard-assets-panel {
+  position: relative;
+  overflow: hidden;
+}
+.assets-trend-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.18;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: var(--radius);
+}
+.dashboard-assets-panel h2,
+.dashboard-assets-panel #dashboard-assets-donut {
+  position: relative;
+  z-index: 1;
+}
+:root[data-theme="dark"] .assets-trend-canvas { opacity: 0.22; }
+
 .metric {
   padding: 16px 16px 16px 20px;
   border-left: 4px solid var(--primary);

@@ -330,6 +330,7 @@ async function loadDashboard() {
   setupDailyCountTooltip();
   loadInsights();
   loadForecast().catch(() => {});
+  loadAssetsTrendBg().catch(() => {});
 }
 
 // 總資產 donut: same layout as 進帳-支出淨額 and 支出類別分布
@@ -458,6 +459,52 @@ async function loadForecast() {
     const card = document.getElementById('forecast-card');
     if (card) card.title = `目前已花 NT$${data.currentSpend.toLocaleString()}，還有 ${data.remainingDays} 天`;
   } catch { /* ignore */ }
+}
+
+let _assetsTrendChart = null;
+async function loadAssetsTrendBg() {
+  const canvas = document.getElementById('assets-trend-bg');
+  if (!canvas) return;
+  const resp = await apiFetch('/api/net-worth/history');
+  const history = await resp.json();
+  // Keep last 30 data points
+  const pts = history.slice(-30);
+  if (pts.length < 2) return;
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  const lineColor = isDark ? 'rgba(0,255,255,0.9)' : 'rgba(26,127,100,0.9)';
+  const fillStart = isDark ? 'rgba(0,255,255,0.35)' : 'rgba(26,127,100,0.25)';
+  const fillEnd   = isDark ? 'rgba(0,255,255,0.02)' : 'rgba(26,127,100,0.02)';
+
+  if (_assetsTrendChart) { _assetsTrendChart.destroy(); _assetsTrendChart = null; }
+
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.offsetHeight || 200);
+  grad.addColorStop(0, fillStart);
+  grad.addColorStop(1, fillEnd);
+
+  _assetsTrendChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: pts.map(p => p.recordedDate),
+      datasets: [{
+        data: pts.map(p => p.netWorth),
+        fill: true,
+        borderColor: lineColor,
+        backgroundColor: grad,
+        borderWidth: 2,
+        tension: 0.45,
+        pointRadius: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: { x: { display: false }, y: { display: false } },
+      layout: { padding: 0 },
+    }
+  });
 }
 
 async function loadNetWorthChart() {
