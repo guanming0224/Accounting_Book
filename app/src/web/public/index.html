@@ -797,6 +797,23 @@
     </div>
 
     <!-- ── 新增交易 Modal ────────────────────────────────────────────────────── -->
+    <!-- 帳本移轉 modal -->
+    <div id="ledger-transfer-overlay" class="modal-overlay" hidden>
+      <div class="modal" style="max-width:380px" role="dialog" aria-modal="true">
+        <h2>移轉帳本</h2>
+        <p style="color:var(--muted);font-size:var(--text-sm);margin:8px 0 14px">
+          將「<strong id="ledger-transfer-name"></strong>」移轉到其他帳戶
+        </p>
+        <select id="ledger-transfer-target" style="width:100%;margin-bottom:16px">
+          <option value="">選擇目標帳戶</option>
+        </select>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="ledger-transfer-cancel" class="secondary">取消</button>
+          <button id="ledger-transfer-confirm">確認移轉</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 帳本刪除確認 modal -->
     <div id="ledger-delete-overlay" class="modal-overlay" hidden>
       <div class="modal" style="max-width:420px" role="dialog" aria-modal="true">

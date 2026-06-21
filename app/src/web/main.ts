@@ -660,14 +660,24 @@ async function startWebServer() {
     res.json({ ok: true });
   }));
 
+  app.patch('/api/ledgers/:id/account', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId   = await resolveUserId(req);
+    const ledgerId = Number(req.params.id);
+    const accountId = req.body.accountId != null ? Number(req.body.accountId) : null;
+    const ledger = await db.get<any>('SELECT * FROM ledgers WHERE ledgerId = ? AND userId = ?', [ledgerId, userId]);
+    if (!ledger) throw new Error('LEDGER_NOT_FOUND');
+    await db.run('UPDATE ledgers SET accountId = ? WHERE ledgerId = ?', [accountId, ledgerId]);
+    await cacheManager.invalidateLedgerCache(userId);
+    res.json({ ok: true });
+  }));
+
   app.delete('/api/ledgers/:id', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const ledgerId = Number(req.params.id);
     const ledger = await db.get<any>('SELECT * FROM ledgers WHERE ledgerId = ? AND userId = ?', [ledgerId, userId]);
     if (!ledger) throw new Error('LEDGER_NOT_FOUND');
-    const activeLedgers = await ledgerModule.getUserLedgers(userId);
-    if (activeLedgers.length <= 1 && !ledger.isArchived) throw new Error('LEDGER_DELETE_LAST');
     await db.run('DELETE FROM transactions WHERE ledgerId = ?', [ledgerId]);
     await db.run('DELETE FROM ledgers WHERE ledgerId = ? AND userId = ?', [ledgerId, userId]);
     await cacheManager.invalidateLedgerCache(userId);

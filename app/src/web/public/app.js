@@ -778,7 +778,7 @@ function renderAssetsTrendModalChart() {
   const pts     = groupAssetsByRange(history, _assetsTrendRange);
   const labels  = pts.map(p => p.recordedDate);
   const data    = pts.map(p => p.netWorth);
-  const dataMax = Math.max(1, ...data);
+  const dataMax = Math.max(...data);   // raw max, 0 if all zero
   const isDark = document.documentElement.dataset.theme === 'dark';
   const { textColor, gridColor } = chartDefaults();
   const primary = isDark ? '#00ffff' : '#1a7f64';
@@ -799,6 +799,28 @@ function renderAssetsTrendModalChart() {
 
   const canvas = document.getElementById('assets-trend-modal-chart');
   if (!canvas) return;
+
+  // All-zero: show empty state, avoid fractional NT$ ticks
+  if (dataMax === 0) {
+    const ctx0 = canvas.getContext('2d');
+    ctx0.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.style.display = 'none';
+    let emptyEl = document.getElementById('assets-trend-empty');
+    if (!emptyEl) {
+      emptyEl = document.createElement('div');
+      emptyEl.id = 'assets-trend-empty';
+      emptyEl.style.cssText = 'height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px';
+      canvas.parentElement.appendChild(emptyEl);
+    }
+    emptyEl.textContent = '尚無淨資產記錄';
+    emptyEl.hidden = false;
+    return;
+  }
+  // Restore canvas visibility and hide empty placeholder
+  canvas.style.display = '';
+  const emptyEl = document.getElementById('assets-trend-empty');
+  if (emptyEl) emptyEl.hidden = true;
+
   const ctx = canvas.getContext('2d');
 
   // Gradient fill
@@ -842,7 +864,7 @@ function renderAssetsTrendModalChart() {
         },
         y: {
           min: 0,
-          suggestedMax: dataMax * 1.15,
+          suggestedMax: dataMax * 1.15 || 1000,
           ticks: {
             color: textColor,
             font: { size: 12 },
@@ -868,6 +890,26 @@ function closeAssetsTrendModal() {
   const overlay = document.getElementById('assets-trend-modal-overlay');
   if (overlay) overlay.hidden = true;
   if (_assetsTrendModalChart) { _assetsTrendModalChart.destroy(); _assetsTrendModalChart = null; }
+}
+
+// ── 帳本移轉 modal ────────────────────────────────────────────────────────
+let _transferLedgerId = null;
+
+function openLedgerTransferModal(ledgerId, name, fromAccountId) {
+  _transferLedgerId = ledgerId;
+  document.getElementById('ledger-transfer-name').textContent = name;
+  const sel = document.getElementById('ledger-transfer-target');
+  sel.innerHTML = '<option value="">選擇目標帳戶</option>' +
+    state.accounts
+      .filter(a => String(a.accountId) !== String(fromAccountId))
+      .map(a => `<option value="${a.accountId}">${escapeHtml(a.name)}</option>`)
+      .join('');
+  document.getElementById('ledger-transfer-overlay').hidden = false;
+}
+
+function closeLedgerTransferModal() {
+  document.getElementById('ledger-transfer-overlay').hidden = true;
+  _transferLedgerId = null;
 }
 
 // ── 帳本刪除確認 modal（Discord 風格）─────────────────────────────────────
@@ -1494,6 +1536,7 @@ function renderPocketCard(a, idx) {
   const ledgerList = pocketLedgers.map(l => `
     <div class="pocket-ledger-item">
       <button class="pocket-ledger-link" data-pocket-open-ledger="${l.ledgerId}">📒 ${escapeHtml(l.name)}</button>
+      <button class="icon-btn" data-ledger-transfer="${l.ledgerId}" data-ledger-name="${escapeAttr(l.name)}" data-from-account="${a.accountId}" title="移轉帳本">↗</button>
       <button class="icon-btn danger-icon pocket-ledger-del" data-ledger-delete="${l.ledgerId}" title="刪除帳本">✕</button>
     </div>`).join('');
 
@@ -3186,6 +3229,28 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  // 帳本移轉 modal
+  if (target.id === 'ledger-transfer-cancel' || target.id === 'ledger-transfer-overlay') {
+    closeLedgerTransferModal(); return;
+  }
+  if (target.id === 'ledger-transfer-confirm' && _transferLedgerId) {
+    const sel = document.getElementById('ledger-transfer-target');
+    if (!sel.value) { showStatus('請選擇目標帳戶', true); return; }
+    try {
+      await api(`/api/ledgers/${_transferLedgerId}/account`, { method: 'PATCH', body: JSON.stringify({ accountId: Number(sel.value) }) });
+      closeLedgerTransferModal();
+      await loadAccounts();
+      await loadLedgers();
+      showStatus('已移轉帳本');
+    } catch (err) { showStatus(err.message || '移轉失敗', true); }
+    return;
+  }
+  const transferBtn = target.closest('[data-ledger-transfer]');
+  if (transferBtn) {
+    openLedgerTransferModal(transferBtn.dataset.ledgerTransfer, transferBtn.dataset.ledgerName, transferBtn.dataset.fromAccount);
+    return;
+  }
+
   // 帳本刪除確認 modal
   if (target.id === 'ledger-delete-cancel' || target.id === 'ledger-delete-overlay') {
     closeLedgerDeleteModal();
@@ -3199,7 +3264,7 @@ document.addEventListener('click', async (event) => {
       await loadAccounts();
       showStatus('已刪除帳本');
     } catch (err) {
-      showStatus(err.message === 'LEDGER_DELETE_LAST' ? '無法刪除：至少需保留一個帳本' : (err.message || '刪除失敗'), true);
+      showStatus(err.message || '刪除失敗', true);
     }
     return;
   }
@@ -4053,6 +4118,7 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
       closeSearch();
       closeAssetsTrendModal();
       closeLedgerDeleteModal();
+      closeLedgerTransferModal();
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); openSearch(); }
   });
