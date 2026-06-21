@@ -775,9 +775,10 @@ function renderAssetsTrendModalChart() {
   const history = _assetsTrendHistory;
   if (!history || !history.length) return;
 
-  const pts    = groupAssetsByRange(history, _assetsTrendRange);
-  const labels = pts.map(p => p.recordedDate);
-  const data   = pts.map(p => p.netWorth);
+  const pts     = groupAssetsByRange(history, _assetsTrendRange);
+  const labels  = pts.map(p => p.recordedDate);
+  const data    = pts.map(p => p.netWorth);
+  const dataMax = Math.max(1, ...data);
   const isDark = document.documentElement.dataset.theme === 'dark';
   const { textColor, gridColor } = chartDefaults();
   const primary = isDark ? '#00ffff' : '#1a7f64';
@@ -841,6 +842,7 @@ function renderAssetsTrendModalChart() {
         },
         y: {
           min: 0,
+          suggestedMax: dataMax * 1.15,
           ticks: {
             color: textColor,
             font: { size: 12 },
