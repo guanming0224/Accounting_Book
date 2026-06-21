@@ -1057,15 +1057,28 @@ async function startWebServer() {
   app.post('/api/accounts/transfer', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
-    const { fromId, toId, amount, note } = req.body;
+    const { fromLedgerId, toLedgerId, amount, note } = req.body;
     const transferAmount = Number(amount);
     if (Number.isNaN(transferAmount) || transferAmount <= 0) throw new Error('INVALID_AMOUNT');
+
+    // Resolve accounts via ledger's accountId
+    const [fromLedger, toLedger] = await Promise.all([
+      db.get<any>('SELECT * FROM ledgers WHERE ledgerId = ? AND userId = ?', [Number(fromLedgerId), userId]),
+      db.get<any>('SELECT * FROM ledgers WHERE ledgerId = ? AND userId = ?', [Number(toLedgerId), userId]),
+    ]);
+    if (!fromLedger) throw new Error('FROM_LEDGER_NOT_FOUND');
+    if (!toLedger)   throw new Error('TO_LEDGER_NOT_FOUND');
+    if (!fromLedger.accountId) throw new Error('FROM_LEDGER_NO_ACCOUNT');
+    if (!toLedger.accountId)   throw new Error('TO_LEDGER_NO_ACCOUNT');
+
     const [fromAcc, toAcc] = await Promise.all([
-      db.get<any>('SELECT * FROM accounts WHERE accountId = ? AND userId = ?', [Number(fromId), userId]),
-      db.get<any>('SELECT * FROM accounts WHERE accountId = ? AND userId = ?', [Number(toId), userId]),
+      db.get<any>('SELECT * FROM accounts WHERE accountId = ? AND userId = ?', [fromLedger.accountId, userId]),
+      db.get<any>('SELECT * FROM accounts WHERE accountId = ? AND userId = ?', [toLedger.accountId, userId]),
     ]);
     if (!fromAcc) throw new Error('FROM_ACCOUNT_NOT_FOUND');
-    if (!toAcc) throw new Error('TO_ACCOUNT_NOT_FOUND');
+    if (!toAcc)   throw new Error('TO_ACCOUNT_NOT_FOUND');
+    if (fromAcc.accountId === toAcc.accountId) throw new Error('SAME_ACCOUNT');
+
     await Promise.all([
       db.run('UPDATE accounts SET balance = balance - ?, updatedAt = CURRENT_TIMESTAMP WHERE accountId = ?', [transferAmount, fromAcc.accountId]),
       db.run('UPDATE accounts SET balance = balance + ?, updatedAt = CURRENT_TIMESTAMP WHERE accountId = ?', [transferAmount, toAcc.accountId]),

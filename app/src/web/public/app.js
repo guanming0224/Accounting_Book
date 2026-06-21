@@ -1515,12 +1515,20 @@ function renderAccounts(data) {
       : '<div class="pocket-empty">還沒有口袋，點「＋ 新增口袋」開始吧</div>';
   }
 
-  const fromSel = document.getElementById('transfer-from');
-  const toSel   = document.getElementById('transfer-to');
-  const opts = '<option value="">選擇口袋</option>' +
-    accounts.map(a => `<option value="${a.accountId}">${escapeHtml(a.name)}</option>`).join('');
-  if (fromSel) fromSel.innerHTML = opts;
-  if (toSel)   toSel.innerHTML   = opts;
+  // Transfer form: populate ledger dropdowns with account info
+  const fromLedgerSel = document.getElementById('transfer-from-ledger');
+  const toLedgerSel   = document.getElementById('transfer-to-ledger');
+  if (fromLedgerSel && toLedgerSel) {
+    const accountMap = Object.fromEntries(accounts.map(a => [a.accountId, a.name]));
+    const ledgerOpts = '<option value="">選擇帳本</option>' +
+      state.ledgers.map(l => {
+        const acctName = l.accountId ? accountMap[l.accountId] || '' : '';
+        const label = acctName ? `${escapeHtml(l.name)}（${escapeHtml(acctName)}）` : escapeHtml(l.name);
+        return `<option value="${l.ledgerId}" data-account-id="${l.accountId || ''}" data-account-name="${escapeAttr(acctName)}">${label}</option>`;
+      }).join('');
+    fromLedgerSel.innerHTML = ledgerOpts;
+    toLedgerSel.innerHTML   = ledgerOpts;
+  }
 }
 
 function renderPocketCard(a, idx) {
@@ -3845,26 +3853,55 @@ document.querySelector('#account-create-form').addEventListener('submit', async 
   }
 });
 
-// Transfer form
+// Transfer form – ledger-based selects with account hint
+(function() {
+  function updateAccountHint(selId, hintId) {
+    const sel  = document.getElementById(selId);
+    const hint = document.getElementById(hintId);
+    if (!sel || !hint) return;
+    sel.addEventListener('change', () => {
+      const opt = sel.selectedOptions[0];
+      const name = opt?.dataset.accountName || '';
+      hint.textContent = name ? `帳戶：${name}` : '';
+    });
+  }
+  updateAccountHint('transfer-from-ledger', 'transfer-from-account');
+  updateAccountHint('transfer-to-ledger',   'transfer-to-account');
+})();
+
 document.querySelector('#transfer-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
-  const fromAccountId = Number(form.fromAccountId.value);
-  const toAccountId = Number(form.toAccountId.value);
+  const fromLedgerId = Number(form.fromLedgerId.value);
+  const toLedgerId   = Number(form.toLedgerId.value);
   const amount = Number(form.amount.value);
-  if (!fromAccountId || !toAccountId) { showStatus('請選擇轉出和轉入帳戶', true); return; }
-  if (fromAccountId === toAccountId) { showStatus('轉出和轉入帳戶不能相同', true); return; }
-  if (!amount || amount <= 0) { showStatus('請輸入有效金額', true); return; }
+  if (!fromLedgerId || !toLedgerId) { showStatus('請選擇轉出和轉入帳本', true); return; }
+  if (fromLedgerId === toLedgerId)  { showStatus('轉出和轉入帳本不能相同', true); return; }
+  if (!amount || amount <= 0)       { showStatus('請輸入有效金額', true); return; }
+
+  // Resolve accountIds from selected ledgers
+  const fromLedger = state.ledgers.find(l => l.ledgerId === fromLedgerId);
+  const toLedger   = state.ledgers.find(l => l.ledgerId === toLedgerId);
+  const fromAccountId = fromLedger?.accountId || null;
+  const toAccountId   = toLedger?.accountId   || null;
+
   try {
     await api('/api/accounts/transfer', {
       method: 'POST',
-      body: JSON.stringify({ fromAccountId, toAccountId, amount, note: form.note.value.trim() }),
+      body: JSON.stringify({ fromAccountId, toAccountId, fromLedgerId, toLedgerId, amount, note: form.note.value.trim() }),
     });
     form.reset();
+    document.getElementById('transfer-from-account').textContent = '';
+    document.getElementById('transfer-to-account').textContent   = '';
     await loadAccounts();
     showStatus('轉帳完成');
   } catch (err) {
-    showStatus(err.message || '轉帳失敗', true);
+    const msg = {
+      FROM_LEDGER_NO_ACCOUNT: '轉出帳本未連結帳戶',
+      TO_LEDGER_NO_ACCOUNT:   '轉入帳本未連結帳戶',
+      SAME_ACCOUNT:           '轉出與轉入屬於同一個帳戶',
+    }[err.message] || err.message || '轉帳失敗';
+    showStatus(msg, true);
   }
 });
 

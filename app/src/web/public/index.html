@@ -351,17 +351,29 @@
         <!-- 口袋之間轉帳 -->
         <section class="panel">
           <h2>口袋間轉帳</h2>
-          <form id="transfer-form" class="toolbar" style="flex-wrap:wrap;">
-            <select id="transfer-from" name="fromAccountId">
-              <option value="">從哪個口袋</option>
-            </select>
-            <span style="color:var(--muted)">→</span>
-            <select id="transfer-to" name="toAccountId">
-              <option value="">轉到哪個口袋</option>
-            </select>
-            <input name="amount" type="number" placeholder="金額" min="0.01" step="0.01" style="width:110px;" />
-            <input name="note" type="text" placeholder="備註（選填）" style="width:140px;" />
-            <button type="submit">轉帳</button>
+          <form id="transfer-form" style="display:flex;flex-direction:column;gap:14px;max-width:520px;">
+            <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:end;">
+              <div>
+                <div class="form-label" style="font-size:var(--text-xs);color:var(--muted);margin-bottom:4px">轉出帳本</div>
+                <select id="transfer-from-ledger" name="fromLedgerId" style="width:100%">
+                  <option value="">選擇帳本</option>
+                </select>
+                <div id="transfer-from-account" style="font-size:var(--text-xs);color:var(--muted);margin-top:4px;min-height:16px"></div>
+              </div>
+              <span style="color:var(--muted);padding-bottom:20px">→</span>
+              <div>
+                <div class="form-label" style="font-size:var(--text-xs);color:var(--muted);margin-bottom:4px">轉入帳本</div>
+                <select id="transfer-to-ledger" name="toLedgerId" style="width:100%">
+                  <option value="">選擇帳本</option>
+                </select>
+                <div id="transfer-to-account" style="font-size:var(--text-xs);color:var(--muted);margin-top:4px;min-height:16px"></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <input name="amount" type="number" placeholder="金額" min="0.01" step="0.01" style="width:130px;" />
+              <input name="note" type="text" placeholder="備註（選填）" style="flex:1;" />
+              <button type="submit">轉帳</button>
+            </div>
           </form>
         </section>
 
