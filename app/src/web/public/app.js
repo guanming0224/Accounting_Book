@@ -2623,11 +2623,20 @@ function initTemplateForm() {
   const tplSubcategory = document.getElementById('tpl-subcategory');
   const tplPayment = document.getElementById('tpl-payment');
   if (!form) return;
+  // Prevent duplicate listeners on repeated navigation
+  if (form.dataset.initialized) { populateTplDropdowns(); return; }
+  form.dataset.initialized = '1';
 
-  // Populate ledgers
-  if (tplLedger) {
-    tplLedger.innerHTML = state.ledgers.map(l => `<option value="${l.ledgerId}">${escapeHtml(l.name)}</option>`).join('');
+  function populateTplDropdowns() {
+    if (tplLedger) {
+      tplLedger.innerHTML = state.ledgers.map(l => `<option value="${l.ledgerId}">${escapeHtml(l.name)}</option>`).join('');
+    }
+    if (tplPayment) {
+      tplPayment.innerHTML = (state.settings?.paymentMethods || []).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+    }
+    populateTplCats();
   }
+
   // Populate categories based on type
   function populateTplCats() {
     const type = form.querySelector('[name="type"]').value;
@@ -2653,10 +2662,7 @@ function initTemplateForm() {
     const selected = cats.find(c => c.name === tplCategory.value);
     populateTplSubcats(selected);
   });
-  if (tplPayment) {
-    tplPayment.innerHTML = (state.settings?.paymentMethods || []).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
-  }
-  populateTplCats();
+  populateTplDropdowns();
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
