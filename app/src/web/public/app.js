@@ -685,7 +685,6 @@ async function loadLedgers() {
   renderLedgers();
   populateImportLedgerSelect();
   loadLedgerStats();
-  applyFeatureFlags();
 }
 
 async function loadLedgerStats() {
@@ -3113,14 +3112,7 @@ document.querySelector('#ledger-create-form').addEventListener('submit', async (
   }
 });
 
-// Account create form
 // 新增口袋：開關 panel
-// Feature toggle: 帳本功能
-document.getElementById('feature-ledger-toggle').addEventListener('change', (e) => {
-  localStorage.setItem('featureLedger', e.target.checked ? 'on' : 'off');
-  applyFeatureFlags();
-});
-
 document.getElementById('pocket-add-btn').addEventListener('click', () => {
   const panel = document.getElementById('pocket-add-panel');
   panel.hidden = !panel.hidden;
@@ -3391,35 +3383,10 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────
-// ── Feature flags ─────────────────────────────────────────────────────────
-function isLedgerEnabled() {
-  return localStorage.getItem('featureLedger') !== 'off';
-}
-
-function applyFeatureFlags() {
-  const ledgerOn = isLedgerEnabled();
-  document.body.classList.toggle('no-ledger-feature', !ledgerOn);
-
-  // Sync toggle checkbox
-  const toggle = document.getElementById('feature-ledger-toggle');
-  if (toggle) toggle.checked = ledgerOn;
-
-  // When disabling, auto-select first available ledger in all selects
-  if (!ledgerOn && state.ledgers.length) {
-    const firstId = String(state.ledgers[0].ledgerId);
-    ['#transaction-filter select[name=ledgerId]', '#modal-ledger',
-     '#tpl-ledger', '#rec-ledger', '#import-ledger-select'].forEach(sel => {
-      const el = document.querySelector(sel);
-      if (el && !el.value) el.value = firstId;
-    });
-  }
-}
-
 (async function init() {
   await checkAuth();
 
   applyTheme(localStorage.getItem('theme') === 'dark');
-  applyFeatureFlags();
 
   const filter = document.querySelector('#transaction-filter');
   filter.start.value = toDateInput(monthStart);

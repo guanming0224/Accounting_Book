@@ -1265,65 +1265,6 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .toggle-row { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 6px 0; }
 .toggle-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
 
-/* ── Feature toggle (iOS-style switch) ───────────────────────────────────── */
-.feature-toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 6px 0;
-  cursor: pointer;
-}
-.feature-toggle-info { flex: 1; }
-.feature-toggle-title {
-  font-weight: 600;
-  font-size: var(--text-base);
-  color: var(--text);
-  margin-bottom: 3px;
-}
-.feature-toggle-desc {
-  font-size: var(--text-xs);
-  color: var(--muted);
-  line-height: 1.5;
-}
-/* Hide real checkbox, use custom track */
-.toggle-switch input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; }
-.toggle-track {
-  display: flex;
-  align-items: center;
-  width: 44px;
-  height: 26px;
-  border-radius: 999px;
-  background: var(--surface-mid);
-  padding: 3px;
-  flex-shrink: 0;
-  transition: background 0.2s;
-  cursor: pointer;
-}
-.toggle-switch input:checked ~ .toggle-track { background: var(--primary); }
-.toggle-thumb {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-  transition: transform 0.2s;
-}
-.toggle-switch input:checked ~ .toggle-track .toggle-thumb { transform: translateX(18px); }
-
-/* ── body.no-ledger-feature: hide all ledger UI ─────────────────────────── */
-body.no-ledger-feature [data-view="ledgers"] { display: none !important; }
-body.no-ledger-feature #transaction-filter select[name="ledgerId"],
-body.no-ledger-feature label[for="filter-ledger"] { display: none !important; }
-body.no-ledger-feature #modal-ledger,
-body.no-ledger-feature label[for="modal-ledger"] { display: none !important; }
-body.no-ledger-feature #tpl-ledger,
-body.no-ledger-feature label[for="tpl-ledger"] { display: none !important; }
-body.no-ledger-feature #rec-ledger,
-body.no-ledger-feature label[for="rec-ledger"] { display: none !important; }
-body.no-ledger-feature #import-ledger-select { display: none !important; }
-body.no-ledger-feature #dashboard-ledgers,
-body.no-ledger-feature #dashboard-ledgers ~ * .ledger-donut-card { display: none !important; }
 
 /* ── Checkbox column in tx table ─────────────────────────────────────────── */
 .tx-row-checkbox { cursor: pointer; width: 14px; height: 14px; }
