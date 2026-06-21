@@ -897,8 +897,8 @@ tbody tr:hover td {
   --surface-mid: #121228;
   /* ── 文字 ── */
   --text:        #eaf2ff;
-  --muted:       #4a5e90;
-  --text-muted:  #4a5e90;
+  --muted:       #8aaedd;
+  --text-muted:  #8aaedd;
   /* ── 邊框 ── */
   --line:        #10102a;
   --border:      #1c1c40;
@@ -916,8 +916,8 @@ tbody tr:hover td {
   --success-light: rgba(0,255,170,0.10);
   /* ── 側邊欄 ── */
   --sidebar-bg:    #010104;
-  --sidebar-text:  #b0ccee;
-  --sidebar-muted: #243660;
+  --sidebar-text:  #c8dff5;
+  --sidebar-muted: #6690c8;
   /* ── 霓虹輝光陰影 ── */
   --shadow-1: 0 1px 3px rgba(0,0,0,1),   0 0 0 1px var(--border);
   --shadow-2: 0 4px 14px rgba(0,0,0,0.95), 0 0 16px rgba(0,255,255,0.14);
