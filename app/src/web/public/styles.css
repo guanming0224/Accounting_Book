@@ -885,57 +885,132 @@ tbody tr:hover td {
   }
 }
 
-/* ── Dark mode ───────────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════
+   Dark mode = Cyberpunk Neon
+   ══════════════════════════════════════════════════════════════════════════ */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  /* ── 背景層次：三個清晰亮度台階 ── */
-  --bg:          #0d1210;   /* 頁面底層，最深 */
-  --surface:     #1a2520;   /* 卡片/面板，明顯比 bg 亮 */
-  --surface-alt: #212e29;   /* 次要區塊背景 */
-  --surface-mid: #2d3f38;   /* hover/active 高亮 */
-  /* ── 文字層次 ── */
-  --text:        #dde9e4;   /* 主文字，高對比 */
-  --muted:       #8ba89f;   /* 次要文字 */
-  --text-muted:  #8ba89f;
-  /* ── 邊框與分隔線：明顯比 surface 亮 ── */
-  --line:        #2b3d36;   /* 內部分隔線（table, hr 等） */
-  --border:      #3e5449;   /* 卡片/輸入框外框，對比清晰 */
-  /* ── 品牌色 ── */
-  --primary:       #2dd4a0;
-  --primary-dark:  #1fb88a;
-  --primary-light: rgba(45,212,160,0.16);
-  --accent:        #fbbf24;
-  --accent-light:  rgba(251,191,36,0.18);
-  --danger:        #f87171;
-  --danger-light:  rgba(248,113,113,0.16);
-  --success:       #2dd4a0;
-  --success-light: rgba(45,212,160,0.16);
-  /* ── 側邊欄：比 bg 更深，有明確邊界 ── */
-  --sidebar-bg:    #080c0a;
-  --sidebar-text:  #c5ddd7;
-  --sidebar-muted: #5a8077;
-  /* ── 陰影：深色背景下需要更強 ── */
-  --shadow-1: 0 1px 3px rgba(0,0,0,0.5), 0 0 0 1px var(--border);
-  --shadow-2: 0 4px 14px rgba(0,0,0,0.55);
-  --shadow-3: 0 8px 28px rgba(0,0,0,0.65);
-  --shadow-4: 0 16px 48px rgba(0,0,0,0.75);
+  /* ── 背景層：趨近純黑，帶藍紫底色 ── */
+  --bg:          #020205;
+  --surface:     #07070f;
+  --surface-alt: #0c0c1c;
+  --surface-mid: #121228;
+  /* ── 文字 ── */
+  --text:        #eaf2ff;
+  --muted:       #4a5e90;
+  --text-muted:  #4a5e90;
+  /* ── 邊框 ── */
+  --line:        #10102a;
+  --border:      #1c1c40;
+  /* ── 霓虹青主色 ── */
+  --primary:       #00ffff;
+  --primary-dark:  #00e5ff;
+  --primary-light: rgba(0,255,255,0.10);
+  /* ── 霓虹洋紅 accent ── */
+  --accent:        #ff00ff;
+  --accent-light:  rgba(255,0,255,0.10);
+  /* ── 霓虹危險 & 成功 ── */
+  --danger:        #ff003c;
+  --danger-light:  rgba(255,0,60,0.10);
+  --success:       #00ffaa;
+  --success-light: rgba(0,255,170,0.10);
+  /* ── 側邊欄 ── */
+  --sidebar-bg:    #010104;
+  --sidebar-text:  #b0ccee;
+  --sidebar-muted: #243660;
+  /* ── 霓虹輝光陰影 ── */
+  --shadow-1: 0 1px 3px rgba(0,0,0,1),   0 0 0 1px var(--border);
+  --shadow-2: 0 4px 14px rgba(0,0,0,0.95), 0 0 16px rgba(0,255,255,0.14);
+  --shadow-3: 0 8px 28px rgba(0,0,0,0.98), 0 0 28px rgba(0,255,255,0.20);
+  --shadow-4: 0 16px 48px rgba(0,0,0,1),   0 0 48px rgba(0,255,255,0.26);
 }
-/* 深色模式：卡片加可見外框，避免融入背景 */
+
+/* ── Cyberpunk: 基礎元件覆蓋 ────────────────────────────────────────────── */
+:root[data-theme="dark"] button { color: #020205; font-weight: 600; }
+:root[data-theme="dark"] button.secondary { background: var(--surface-alt); color: var(--text); border-color: var(--border); font-weight: 400; }
+:root[data-theme="dark"] button.danger { color: #020205; }
+:root[data-theme="dark"] .fab { color: #020205; font-weight: 700; box-shadow: 0 0 0 1px var(--primary), 0 0 20px rgba(0,255,255,0.45), var(--shadow-3); }
+:root[data-theme="dark"] .fab:hover { box-shadow: 0 0 0 1px var(--primary), 0 0 36px rgba(0,255,255,0.60), var(--shadow-3); }
+:root[data-theme="dark"] .type-btn.active { color: #020205; box-shadow: 0 0 10px rgba(0,255,255,0.35); }
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select {
+  background: var(--surface-alt);
+  color: var(--text);
+  border-color: var(--border);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+:root[data-theme="dark"] input:focus,
+:root[data-theme="dark"] select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(0,255,255,0.16);
+}
+:root[data-theme="dark"] table { background: var(--surface); }
+:root[data-theme="dark"] th { background: var(--surface-alt); color: var(--primary); letter-spacing: 0.08em; }
+:root[data-theme="dark"] tbody tr:nth-child(even) { background: var(--surface-alt); }
+:root[data-theme="dark"] tbody tr:hover td { background: var(--surface-mid); }
+
+/* ── Cyberpunk: 卡片與面板 ──────────────────────────────────────────────── */
 :root[data-theme="dark"] .panel {
   border: 1px solid var(--border);
 }
 :root[data-theme="dark"] .metric {
   border: 1px solid var(--border);
   border-left: 4px solid var(--primary);
+  box-shadow: var(--shadow-1), inset -4px 0 16px rgba(0,255,255,0.04);
 }
-:root[data-theme="dark"] .sidebar { background: var(--sidebar-bg); }
-:root[data-theme="dark"] button.secondary { background: var(--surface-alt); color: var(--text); border-color: var(--border); }
-:root[data-theme="dark"] input, :root[data-theme="dark"] select { background: var(--surface-alt); color: var(--text); border-color: var(--border); }
-:root[data-theme="dark"] table { background: var(--surface); }
-:root[data-theme="dark"] th { background: var(--surface-alt); color: var(--muted); }
-/* 表格行在深色模式下的斑馬紋 */
-:root[data-theme="dark"] tbody tr:nth-child(even) { background: var(--surface-alt); }
-:root[data-theme="dark"] tbody tr:hover td { background: var(--surface-mid); }
+:root[data-theme="dark"] .modal,
+:root[data-theme="dark"] .modal-box {
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-4), 0 0 60px rgba(0,255,255,0.10);
+}
+:root[data-theme="dark"] .auth-box {
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-4), 0 0 50px rgba(0,255,255,0.14);
+}
+:root[data-theme="dark"] .pocket-card { border: 1px solid var(--border); }
+:root[data-theme="dark"] .batch-bar { border-color: var(--border); box-shadow: 0 4px 20px rgba(0,0,0,0.9), 0 0 18px rgba(0,255,255,0.10); }
+:root[data-theme="dark"] .meta-card.streak-hot { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(255,0,255,0.3), 0 0 18px rgba(255,0,255,0.14); }
+
+/* ── Cyberpunk: 側邊欄 ──────────────────────────────────────────────────── */
+:root[data-theme="dark"] .sidebar {
+  background: linear-gradient(180deg, var(--sidebar-bg) 0%, #030310 100%);
+  border-right: 1px solid var(--border);
+}
+:root[data-theme="dark"] .nav-button.active {
+  background: rgba(0,255,255,0.06);
+  border-left: 3px solid var(--primary);
+  color: var(--primary);
+  box-shadow: inset 4px 0 14px rgba(0,255,255,0.06);
+}
+:root[data-theme="dark"] .nav-button:not(.active):hover { background: rgba(0,255,255,0.04); }
+
+/* ── Cyberpunk: 圖表與進度條 ────────────────────────────────────────────── */
+:root[data-theme="dark"] .bar-fill { background: var(--primary); box-shadow: 0 0 6px rgba(0,255,255,0.35); }
+:root[data-theme="dark"] .trend-bar.income  { background: var(--success); box-shadow: 0 0 5px rgba(0,255,170,0.45); }
+:root[data-theme="dark"] .trend-bar.expense { background: var(--danger);  box-shadow: 0 0 5px rgba(255,0,60,0.40); }
+:root[data-theme="dark"] .budget-progress-fill { background: linear-gradient(90deg, var(--primary), var(--primary-dark)); box-shadow: 0 0 8px rgba(0,255,255,0.35); }
+:root[data-theme="dark"] .budget-progress-fill.over { background: linear-gradient(90deg, var(--danger), #ff0040); box-shadow: 0 0 8px rgba(255,0,60,0.40); }
+:root[data-theme="dark"] .goal-progress-fill { background: var(--success); box-shadow: 0 0 6px rgba(0,255,170,0.40); }
+:root[data-theme="dark"] .goal-progress-fill.done { background: var(--primary); box-shadow: 0 0 6px rgba(0,255,255,0.40); }
+
+/* ── Cyberpunk: 細節元件 ────────────────────────────────────────────────── */
+:root[data-theme="dark"] .search-box { border: 1px solid var(--primary); box-shadow: 0 0 24px rgba(0,255,255,0.20); }
+:root[data-theme="dark"] .search-results { border: 1px solid var(--border); border-top: none; }
+:root[data-theme="dark"] .ledger-donut-card:hover { border-color: var(--primary); box-shadow: var(--shadow-2), 0 0 20px rgba(0,255,255,0.22); }
+:root[data-theme="dark"] .date-presets button:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); box-shadow: 0 0 8px rgba(0,255,255,0.20); }
+:root[data-theme="dark"] .pocket-btn-deposit  { background: var(--primary-light); color: var(--primary); border: 1px solid rgba(0,255,255,0.20); }
+:root[data-theme="dark"] .pocket-btn-withdraw { background: var(--danger-light);  color: var(--danger);  border: 1px solid rgba(255,0,60,0.20); }
+:root[data-theme="dark"] .rate-currency { text-shadow: 0 0 8px rgba(0,255,255,0.45); }
+:root[data-theme="dark"] .budget-warning-toast { background: var(--accent-light); border-color: var(--accent); color: var(--accent); box-shadow: var(--shadow-2), 0 0 28px rgba(255,0,255,0.30); }
+:root[data-theme="dark"] .cal-cell.cal-today { background: var(--primary-light); }
+:root[data-theme="dark"] .cal-cell.cal-today .cal-day-num { color: var(--primary); text-shadow: 0 0 8px rgba(0,255,255,0.50); }
+:root[data-theme="dark"] .status { border-color: rgba(0,255,170,0.30); }
+:root[data-theme="dark"] .status.error { border-color: rgba(255,0,60,0.30); }
+:root[data-theme="dark"] .insight-info { border-left-color: var(--primary); background: var(--primary-light); }
+:root[data-theme="dark"] .meter-type-badge { color: #020205; font-weight: 700; }
+:root[data-theme="dark"] .meter-type-badge { color: #020205; }
+:root[data-theme="dark"] button.secondary:hover { border-color: var(--primary); color: var(--primary); }
 
 /* ── Icon button (dark mode toggle) ─────────────────────────────────────── */
 .icon-btn {
@@ -1502,7 +1577,6 @@ button.small { padding: 4px 10px; font-size: 12px; }
   max-width: 380px;
   animation: slideUp 0.25s ease;
 }
-[data-theme="dark"] .budget-warning-toast { background: var(--accent-light); border-color: var(--accent); color: var(--accent); }
 .budget-warning-icon { font-size: 22px; flex-shrink: 0; }
 .budget-warning-title { font-weight: 700; font-size: 14px; }
 .budget-warning-sub { font-size: 12px; margin-top: 2px; }
@@ -1527,3 +1601,4 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .lightbox-box { position: relative; max-width: 90vw; max-height: 90vh; }
 .lightbox-img { max-width: 100%; max-height: 90vh; border-radius: 8px; object-fit: contain; display: block; }
 .lightbox-close { position: absolute; top: -16px; right: -16px; background: var(--surface); color: var(--text); border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 16px; padding: 0; }
+
