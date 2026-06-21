@@ -74,9 +74,6 @@ export const PAYMENT_METHODS = {
 };
 
 export const LEDGER_NAMES = {
-  1: '帳本一',
-  2: '帳本二',
-  3: '帳本三',
-  4: '帳本四',
-  5: '帳本五',
+  1: '日常支出',
+  2: '儲蓄帳本',
 };

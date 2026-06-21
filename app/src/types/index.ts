@@ -22,6 +22,7 @@ export interface Ledger {
   userId: number;
   name: string;
   isArchived?: number;
+  accountId?: number | null;
   createdAt: Date;
   updatedAt: Date;
 }

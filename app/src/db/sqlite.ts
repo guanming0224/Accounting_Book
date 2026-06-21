@@ -45,6 +45,7 @@ export class Database {
           )
         `);
         this.db.run(`ALTER TABLE ledgers ADD COLUMN isArchived INTEGER DEFAULT 0`, () => {});
+        this.db.run(`ALTER TABLE ledgers ADD COLUMN accountId INTEGER DEFAULT NULL`, () => {});
 
         // Transactions table
         this.db.run(`

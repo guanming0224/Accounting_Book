@@ -216,6 +216,13 @@ const formatMoney = (value) =>
 
 const chartColors = ['#1a7f64', '#fbbf24', '#818cf8', '#7c3aed', '#e11d48', '#0891b2', '#6b7280'];
 
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
+}
+
 const today = new Date();
 const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
@@ -320,45 +327,135 @@ async function loadDashboard() {
   document.querySelector('#metric-expense').textContent = formatMoney(dashboard.totalExpense);
   document.querySelector('#metric-balance').textContent = formatMoney(dashboard.balance);
   document.querySelector('#metric-count').textContent = dashboard.transactionCount || 0;
+  const ledgerStats = dashboard.ledgerStats || [];
+  renderDashboardAssetsDonut(ledgerStats);
   renderIncomeExpenseChart(dashboard);
   renderExpenseCategoryChart(dashboard.expenseCategories || []);
-  renderLedgerExpenseChart(dashboard.ledgerStats || []);
+  renderExpenseCategoryHeatmapBg(dashboard.expenseCategories || []);
+  renderLedgerExpenseChart(ledgerStats);
   renderDashboardAlerts(dashboard.alerts);
+  populateMetricTooltips(ledgerStats);
+  setupDailyCountTooltip();
   loadInsights();
-  // Fetch and render dashboard sparkline
-  apiFetch('/api/reports/trend?months=6').then(r => r.json()).then(renderDashboardSparkline).catch(() => {});
-  loadStreak().catch(() => {});
   loadForecast().catch(() => {});
-  loadNetWorthChart().catch(() => {});
-  document.querySelector('#dashboard-ledgers').innerHTML =
-    state.ledgers
-      .map(
-        (ledger) => `
-          <div class="row">
-            <div class="row-main">
-              <div class="row-title">${escapeHtml(ledger.name)}</div>
-              <div class="row-meta">ledgerId: ${ledger.ledgerId}</div>
-            </div>
-          </div>`
-      )
-      .join('') || '<div class="row">尚無帳本</div>';
+  loadAssetsTrendBg().catch(() => {});
+  loadNetAmountTrendBg(dashboard.totalIncome || 0, dashboard.balance || 0).catch(() => {});
 }
 
-async function loadStreak() {
-  try {
-    const resp = await apiFetch('/api/stats/streak');
-    const data = await resp.json();
-    const el = document.getElementById('streak-value');
-    if (!el) return;
-    const streak = data.streak || 0;
-    el.textContent = streak === 0 ? '0 天' : `${streak} 天`;
-    const card = document.getElementById('streak-card');
-    if (card) {
-      card.title = data.lastRecordDate ? `最後記帳：${data.lastRecordDate}` : '';
-      if (streak >= 7) card.classList.add('streak-hot');
-    }
-  } catch { /* ignore */ }
+// 總資產 donut: same layout as 進帳-支出淨額 and 支出類別分布
+function renderDashboardAssetsDonut(ledgerStats) {
+  const el = document.getElementById('dashboard-assets-donut');
+  if (!el) return;
+
+  const positive = ledgerStats.filter(l => (l.balance || 0) > 0);
+  const total    = positive.reduce((s, l) => s + l.balance, 0);
+  const totalAll = ledgerStats.reduce((s, l) => s + (l.balance || 0), 0);
+  const netColor = totalAll >= 0 ? 'var(--success)' : 'var(--danger)';
+
+  let bg;
+  if (!positive.length || total <= 0) {
+    bg = '';
+  } else {
+    let deg = 0;
+    const parts = positive.map((l, i) => {
+      const span  = (l.balance / total) * 360;
+      const color = chartColors[i % chartColors.length];
+      const part  = `${color} ${deg.toFixed(1)}deg ${(deg + span).toFixed(1)}deg`;
+      deg += span;
+      return part;
+    });
+    bg = `conic-gradient(${parts.join(', ')})`;
+  }
+
+  const legendItems = positive.length
+    ? positive.map((l, i) => `
+        <div class="legend-item">
+          <span class="swatch" style="background:${chartColors[i % chartColors.length]}"></span>
+          <span>${escapeHtml(l.name)}</span>
+          <strong>${formatMoney(l.balance)}</strong>
+        </div>`).join('')
+    : '<div class="row-meta">暫無結餘資料</div>';
+
+  el.innerHTML = `
+    <div class="donut-layout">
+      <div class="donut" style="${bg ? `background:${bg}` : ''}">
+        <div class="donut-center">
+          <span>總結餘</span>
+          <strong style="color:${netColor}">${formatMoney(totalAll)}</strong>
+        </div>
+      </div>
+      <div class="legend">${legendItems}</div>
+    </div>`;
 }
+
+// Metric tooltips: hover on income/expense/balance → per-ledger breakdown
+function populateMetricTooltips(ledgerStats) {
+  const rows = (field, colorFn) => ledgerStats.map(l => {
+    const v = l[field] || 0;
+    return `<div class="tip-row">
+      <span class="tip-name">${escapeHtml(l.name)}</span>
+      <span class="tip-val" style="color:${colorFn(v)}">${formatMoney(v)}</span>
+    </div>`;
+  }).join('') || '<div class="tip-row"><span class="tip-name">—</span></div>';
+
+  const green = () => 'var(--success)';
+  const red   = () => 'var(--danger)';
+  const sign  = v => v >= 0 ? 'var(--success)' : 'var(--danger)';
+
+  document.getElementById('tip-income').innerHTML  = `<div class="tip-title">各帳本進帳</div>${rows('totalIncome', green)}`;
+  document.getElementById('tip-expense').innerHTML = `<div class="tip-title">各帳本支出</div>${rows('totalExpense', red)}`;
+  document.getElementById('tip-balance').innerHTML = `<div class="tip-title">各帳本結餘</div>${rows('balance', sign)}`;
+}
+
+// Daily count tooltip: fetch on first hover, render SVG sparkline
+function setupDailyCountTooltip() {
+  const card = document.getElementById('metric-count-card');
+  if (!card) return;
+  let loaded = false;
+  card.addEventListener('mouseenter', async () => {
+    if (loaded) return;
+    loaded = true;
+    const el = document.getElementById('daily-count-chart');
+    if (!el) return;
+    try {
+      const now = new Date();
+      const y = now.getFullYear(), m = now.getMonth();
+      const start = toDateInput(new Date(y, m, 1));
+      const end   = toDateInput(new Date(y, m + 1, 0));
+      const data  = await api(`/api/reports/daily-count?start=${start}&end=${end}`);
+      const daysInMonth = new Date(y, m + 1, 0).getDate();
+      const counts = new Array(daysInMonth).fill(0);
+      for (const { date, count } of data) {
+        const d = new Date(date + 'T00:00:00').getDate() - 1;
+        if (d >= 0 && d < daysInMonth) counts[d] = count;
+      }
+      el.innerHTML = renderDailyCountSVG(counts);
+    } catch {
+      loaded = false;
+    }
+  }, { passive: true });
+}
+
+function renderDailyCountSVG(counts) {
+  const W = 190, H = 48, pad = 3;
+  const n = counts.length;
+  const max = Math.max(...counts, 1);
+  const x = i => pad + (i / (n - 1)) * (W - 2 * pad);
+  const y = v => H - pad - (v / max) * (H - 2 * pad);
+  const pts = counts.map((c, i) => `${x(i).toFixed(1)},${y(c).toFixed(1)}`).join(' ');
+  const dots = counts.map((c, i) => c > 0
+    ? `<circle cx="${x(i).toFixed(1)}" cy="${y(c).toFixed(1)}" r="2.5" fill="var(--primary)"/>`
+    : '').join('');
+  const labels = [1, Math.ceil(n / 2), n].map(d =>
+    `<text x="${x(d - 1).toFixed(1)}" y="${H + 11}" fill="var(--muted)" font-size="9" text-anchor="middle">${d}</text>`
+  ).join('');
+  return `<svg viewBox="0 0 ${W} ${H + 14}" width="${W}" height="${H + 14}" style="display:block;overflow:visible">
+    <polyline points="${pts}" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}
+    ${labels}
+  </svg>`;
+}
+
 
 async function loadForecast() {
   try {
@@ -371,6 +468,470 @@ async function loadForecast() {
     const card = document.getElementById('forecast-card');
     if (card) card.title = `目前已花 NT$${data.currentSpend.toLocaleString()}，還有 ${data.remainingDays} 天`;
   } catch { /* ignore */ }
+}
+
+let _assetsTrendChart = null;
+async function loadAssetsTrendBg() {
+  const canvas = document.getElementById('assets-trend-bg');
+  if (!canvas) return;
+
+  // Share history cache with the modal
+  if (!_assetsTrendHistory) {
+    const resp = await apiFetch('/api/net-worth/history');
+    _assetsTrendHistory = await resp.json();
+  }
+  renderAssetsBgChart();
+}
+
+function renderAssetsBgChart() {
+  const canvas = document.getElementById('assets-trend-bg');
+  if (!canvas || !_assetsTrendHistory) return;
+
+  const pts = groupAssetsByRange(_assetsTrendHistory, '30d');
+  if (pts.length < 2) return;
+
+  if (_assetsTrendChart) { _assetsTrendChart.destroy(); _assetsTrendChart = null; }
+
+  const isDark   = document.documentElement.dataset.theme === 'dark';
+  const primary  = isDark ? 'rgba(0,255,255,0.90)' : 'rgba(26,127,100,0.90)';
+  const isBar    = _assetsTrendStyle === 'bar';
+  const isCurve  = _assetsTrendStyle === 'curve';
+  const dataMax  = Math.max(...pts.map(p => p.netWorth));
+
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W   = canvas.offsetWidth  || canvas.width  / dpr;
+  const H   = canvas.offsetHeight || canvas.height / dpr;
+
+  // All-zero: draw a flat line near the bottom with no fill, skip Chart.js
+  if (dataMax === 0) {
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+    ctx.beginPath();
+    ctx.moveTo(0, H - 4);
+    ctx.lineTo(W, H - 4);
+    ctx.strokeStyle = primary;
+    ctx.lineWidth   = 2;
+    ctx.stroke();
+    return;
+  }
+
+  const fillTop  = isDark ? 'rgba(0,255,255,0.30)' : 'rgba(26,127,100,0.22)';
+  const fillBot  = isDark ? 'rgba(0,255,255,0.00)' : 'rgba(26,127,100,0.00)';
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, fillTop);
+  grad.addColorStop(1, fillBot);
+
+  const dataset = isBar
+    ? { type: 'bar', data: pts.map(p => p.netWorth),
+        backgroundColor: isDark ? 'rgba(0,255,255,0.50)' : 'rgba(26,127,100,0.42)',
+        borderRadius: 2 }
+    : { type: 'line', data: pts.map(p => p.netWorth),
+        fill: true, borderColor: primary, backgroundColor: grad,
+        borderWidth: 2,
+        tension: isCurve ? 0.65 : 0,
+        cubicInterpolationMode: isCurve ? 'default' : undefined,
+        pointRadius: _assetsTrendShowPoints ? 3 : 0,
+        pointBackgroundColor: primary };
+
+  _assetsTrendChart = new Chart(canvas, {
+    type: isBar ? 'bar' : 'line',
+    data: { labels: pts.map(p => p.recordedDate), datasets: [dataset] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { display: false },
+        y: { display: false, min: 0, suggestedMax: dataMax * 1.15 }
+      },
+      layout: { padding: { top: 24, left: 0, right: 0, bottom: 0 } },
+    }
+  });
+}
+
+// ── 當月淨額 背景：水波浪動畫（水位 = 剩餘資產 / 進帳總額）─────────────────
+let _waveAnimFrame = null;
+
+function stopWaveAnimation() {
+  if (_waveAnimFrame) { cancelAnimationFrame(_waveAnimFrame); _waveAnimFrame = null; }
+}
+
+async function loadNetAmountTrendBg(totalIncome, balance) {
+  stopWaveAnimation();
+  const canvas = document.getElementById('net-amount-trend-bg');
+  if (!canvas) return;
+
+  // Water level ratio: 0=底 → 1=滿；無進帳時趨近於底
+  const ratio = totalIncome > 0
+    ? Math.max(0.05, Math.min(0.95, balance / totalIncome))
+    : 0.03;
+
+  const dpr = window.devicePixelRatio || 1;
+  function resize() {
+    const W = canvas.parentElement?.offsetWidth || 200;
+    const H = canvas.parentElement?.offsetHeight || 160;
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+  }
+  resize();
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  let phase1 = 0, phase2 = Math.PI * 0.6;
+
+  function frame() {
+    const W = canvas.width / dpr;
+    const H = canvas.height / dpr;
+    ctx.clearRect(0, 0, W, H);
+
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const waterY = H * (1 - ratio);   // Y position of surface (from top)
+    const amp1 = H * 0.028, amp2 = H * 0.018;
+    const wl1 = W * 0.55, wl2 = W * 0.38;
+
+    // ── 底層水體填色 ──────────────────────────────────────────
+    const bodyGrad = ctx.createLinearGradient(0, waterY, 0, H);
+    if (isDark) {
+      bodyGrad.addColorStop(0, 'rgba(0,255,255,0.18)');
+      bodyGrad.addColorStop(1, 'rgba(0,100,180,0.38)');
+    } else {
+      bodyGrad.addColorStop(0, 'rgba(26,127,100,0.14)');
+      bodyGrad.addColorStop(1, 'rgba(26,127,100,0.30)');
+    }
+    ctx.fillStyle = bodyGrad;
+    ctx.fillRect(0, waterY, W, H - waterY);
+
+    // ── 波浪 2（後層，較柔） ───────────────────────────────────
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x++) {
+      const y = waterY + amp2 * Math.sin((x / wl2) * Math.PI * 2 + phase2)
+                       + amp2 * 0.5 * Math.cos((x / wl1) * Math.PI * 2 - phase1 * 0.5);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fillStyle = isDark ? 'rgba(0,200,255,0.28)' : 'rgba(26,127,100,0.22)';
+    ctx.fill();
+
+    // ── 波浪 1（前層，較銳） ───────────────────────────────────
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x++) {
+      const y = waterY + amp1 * Math.sin((x / wl1) * Math.PI * 2 + phase1)
+                       + amp1 * 0.4 * Math.sin((x / wl2) * Math.PI * 2 + phase2 * 1.3);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fillStyle = isDark ? 'rgba(0,255,255,0.42)' : 'rgba(26,127,100,0.34)';
+    ctx.fill();
+
+    // ── 水面光澤線 ────────────────────────────────────────────
+    ctx.beginPath();
+    for (let x = 0; x <= W; x++) {
+      const y = waterY + amp1 * Math.sin((x / wl1) * Math.PI * 2 + phase1)
+                       + amp1 * 0.4 * Math.sin((x / wl2) * Math.PI * 2 + phase2 * 1.3);
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = isDark ? 'rgba(0,255,255,0.90)' : 'rgba(26,127,100,0.70)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    phase1 += 0.022;
+    phase2 += 0.015;
+    _waveAnimFrame = requestAnimationFrame(frame);
+  }
+
+  frame();
+}
+
+// ── 當月支出分布 背景：Treemap 熱力圖（面積正比支出金額）─────────────────
+function renderExpenseCategoryHeatmapBg(categories) {
+  const canvas = document.getElementById('expense-cat-heatmap-bg');
+  if (!canvas || !categories.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth || canvas.parentElement?.offsetWidth || 200;
+  const H = canvas.offsetHeight || canvas.parentElement?.offsetHeight || 160;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const total = categories.reduce((s, c) => s + c.total, 0);
+  if (!total) return;
+
+  // Sort desc, keep original index for colour assignment
+  const sorted = [...categories]
+    .map((c, i) => ({ ...c, _idx: i }))
+    .sort((a, b) => b.total - a.total);
+
+  const GAP = 4;
+
+  // Binary-split treemap: split rectangle proportionally, alternate axis by aspect ratio
+  function drawNode(items, x, y, w, h, groupTotal) {
+    if (!items.length || w < 2 || h < 2) return;
+
+    if (items.length === 1) {
+      const cat = items[0];
+      const color = chartColors[cat._idx % chartColors.length];
+      const intensity = cat.total / total;
+      const alpha = 0.12 + intensity * 0.65;
+      ctx.fillStyle = hexToRgba(color, alpha);
+      ctx.beginPath();
+      ctx.roundRect(x + GAP, y + GAP, Math.max(1, w - GAP * 2), Math.max(1, h - GAP * 2), 5);
+      ctx.fill();
+      return;
+    }
+
+    // Find split point: balance two groups so their totals are as equal as possible
+    let accumulated = 0;
+    let splitAt = 1;
+    const half = groupTotal / 2;
+    for (let i = 0; i < items.length - 1; i++) {
+      accumulated += items[i].total;
+      splitAt = i + 1;
+      if (accumulated >= half) break;
+    }
+
+    const groupA = items.slice(0, splitAt);
+    const groupB = items.slice(splitAt);
+    const totalA = groupA.reduce((s, c) => s + c.total, 0);
+    const ratioA = totalA / groupTotal;
+
+    if (w >= h) {
+      // Split horizontally
+      const wA = w * ratioA;
+      drawNode(groupA, x,      y, wA,     h, totalA);
+      drawNode(groupB, x + wA, y, w - wA, h, groupTotal - totalA);
+    } else {
+      // Split vertically
+      const hA = h * ratioA;
+      drawNode(groupA, x, y,      w, hA,     totalA);
+      drawNode(groupB, x, y + hA, w, h - hA, groupTotal - totalA);
+    }
+  }
+
+  drawNode(sorted, 0, 0, W, H, total);
+}
+
+// ── 總資產趨勢彈窗 ───────────────────────────────────────────────────────────
+let _assetsTrendModalChart = null;
+let _assetsTrendHistory    = null;   // cached after first fetch
+let _assetsTrendRange      = '30d';
+let _assetsTrendStyle      = 'curve';
+let _assetsTrendShowPoints = false;
+
+async function openAssetsTrendModal() {
+  const overlay = document.getElementById('assets-trend-modal-overlay');
+  if (!overlay) return;
+  overlay.hidden = false;
+  // Reset point toggle UI
+  _assetsTrendShowPoints = false;
+  const ptBtn = document.getElementById('assets-toggle-points');
+  if (ptBtn) ptBtn.classList.remove('active');
+
+  // Fetch & cache history
+  if (!_assetsTrendHistory) {
+    const resp = await apiFetch('/api/net-worth/history');
+    _assetsTrendHistory = await resp.json();
+  }
+  renderAssetsTrendModalChart();
+}
+
+function groupAssetsByRange(history, range) {
+  if (range === '30d') {
+    // Build exactly 30 calendar days ending today, forward-fill missing days
+    const byDate = {};
+    for (const h of history) byDate[h.recordedDate] = h.netWorth;
+    const today = new Date();
+    let lastVal = history[0]?.netWorth ?? 0;
+    const pts = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10); // YYYY-MM-DD
+      if (byDate[key] !== undefined) lastVal = byDate[key];
+      pts.push({ recordedDate: key.slice(5), netWorth: lastVal }); // MM-DD label
+    }
+    return pts;
+  }
+
+  const map = new Map();
+  for (const h of history) {
+    const key = range === 'month'
+      ? h.recordedDate.slice(0, 7)    // YYYY-MM
+      : h.recordedDate.slice(0, 4);   // YYYY
+    map.set(key, h.netWorth);         // keep last snapshot in period
+  }
+  return Array.from(map.entries()).map(([k, v]) => ({ recordedDate: k, netWorth: v }));
+}
+
+function renderAssetsTrendModalChart() {
+  const history = _assetsTrendHistory;
+  if (!history || !history.length) return;
+
+  const pts     = groupAssetsByRange(history, _assetsTrendRange);
+  const labels  = pts.map(p => p.recordedDate);
+  const data    = pts.map(p => p.netWorth);
+  const dataMax = Math.max(...data);   // raw max, 0 if all zero
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  const { textColor, gridColor } = chartDefaults();
+  const primary = isDark ? '#00ffff' : '#1a7f64';
+
+  // Summary row
+  const first = data[0] ?? 0, last = data[data.length - 1] ?? 0;
+  const diff  = last - first;
+  const sign  = diff >= 0 ? '+' : '';
+  const summaryEl = document.getElementById('assets-trend-modal-summary');
+  if (summaryEl) {
+    summaryEl.innerHTML = `
+      <span>最新：<strong>NT$${Math.round(last).toLocaleString()}</strong></span>
+      <span>區間變化：<strong style="color:${diff>=0?'var(--success)':'var(--danger)'}">${sign}NT$${Math.round(diff).toLocaleString()}</strong></span>
+    `;
+  }
+
+  if (_assetsTrendModalChart) { _assetsTrendModalChart.destroy(); _assetsTrendModalChart = null; }
+
+  const canvas = document.getElementById('assets-trend-modal-chart');
+  if (!canvas) return;
+
+  // All-zero: show empty state, avoid fractional NT$ ticks
+  if (dataMax === 0) {
+    const ctx0 = canvas.getContext('2d');
+    ctx0.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.style.display = 'none';
+    let emptyEl = document.getElementById('assets-trend-empty');
+    if (!emptyEl) {
+      emptyEl = document.createElement('div');
+      emptyEl.id = 'assets-trend-empty';
+      emptyEl.style.cssText = 'height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px';
+      canvas.parentElement.appendChild(emptyEl);
+    }
+    emptyEl.textContent = '尚無淨資產記錄';
+    emptyEl.hidden = false;
+    return;
+  }
+  // Restore canvas visibility and hide empty placeholder
+  canvas.style.display = '';
+  const emptyEl = document.getElementById('assets-trend-empty');
+  if (emptyEl) emptyEl.hidden = true;
+
+  const ctx = canvas.getContext('2d');
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, 0, 0, 420);
+  grad.addColorStop(0, isDark ? 'rgba(0,255,255,0.25)' : 'rgba(26,127,100,0.20)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+
+  const isBar   = _assetsTrendStyle === 'bar';
+  const isCurve = _assetsTrendStyle === 'curve';
+
+  const dataset = isBar
+    ? { type: 'bar', data, backgroundColor: isDark ? 'rgba(0,255,255,0.55)' : 'rgba(26,127,100,0.50)', borderRadius: 4 }
+    : {
+        type: 'line', data, borderColor: primary, backgroundColor: grad,
+        borderWidth: 2,
+        tension: isCurve ? 0.65 : 0,
+        cubicInterpolationMode: isCurve ? 'default' : undefined,
+        fill: true,
+        pointRadius: _assetsTrendShowPoints ? 4 : 0,
+        pointHoverRadius: _assetsTrendShowPoints ? 6 : 4,
+        pointBackgroundColor: primary,
+        pointBorderColor: isDark ? '#020205' : '#fff',
+        pointBorderWidth: 1.5,
+      };
+
+  _assetsTrendModalChart = new Chart(canvas, {
+    type: isBar ? 'bar' : 'line',
+    data: { labels, datasets: [dataset] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
+      plugins: { legend: { display: false },
+        tooltip: {
+          callbacks: { label: ctx => `NT$${Math.round(ctx.raw).toLocaleString()}` }
+        }
+      },
+      layout: { padding: { left: 8, right: 8, top: 8, bottom: 4 } },
+      scales: {
+        x: {
+          ticks: { color: textColor, maxTicksLimit: 10, font: { size: 12 }, padding: 8 },
+          grid:  { color: gridColor }
+        },
+        y: {
+          min: 0,
+          suggestedMax: dataMax * 1.15 || 1000,
+          ticks: {
+            color: textColor,
+            font: { size: 12 },
+            padding: 10,
+            maxTicksLimit: 8,
+            callback: v => {
+              if (v >= 10000) return `NT$${(v / 10000).toFixed(1)}萬`;
+              if (v >= 1000)  return `NT$${(v / 1000).toFixed(1)}k`;
+              return `NT$${v}`;
+            }
+          },
+          grid: { color: gridColor }
+        }
+      }
+    }
+  });
+
+  // Sync background card chart with current style
+  renderAssetsBgChart();
+}
+
+function closeAssetsTrendModal() {
+  const overlay = document.getElementById('assets-trend-modal-overlay');
+  if (overlay) overlay.hidden = true;
+  if (_assetsTrendModalChart) { _assetsTrendModalChart.destroy(); _assetsTrendModalChart = null; }
+}
+
+// ── 帳本移轉 modal ────────────────────────────────────────────────────────
+let _transferLedgerId = null;
+
+function openLedgerTransferModal(ledgerId, name, fromAccountId) {
+  _transferLedgerId = ledgerId;
+  document.getElementById('ledger-transfer-name').textContent = name;
+  const sel = document.getElementById('ledger-transfer-target');
+  sel.innerHTML = '<option value="">選擇目標帳戶</option>' +
+    state.accounts
+      .filter(a => String(a.accountId) !== String(fromAccountId))
+      .map(a => `<option value="${a.accountId}">${escapeHtml(a.name)}</option>`)
+      .join('');
+  document.getElementById('ledger-transfer-overlay').hidden = false;
+}
+
+function closeLedgerTransferModal() {
+  document.getElementById('ledger-transfer-overlay').hidden = true;
+  _transferLedgerId = null;
+}
+
+// ── 帳本刪除確認 modal（Discord 風格）─────────────────────────────────────
+let _pendingDeleteLedgerId = null;
+
+function openLedgerDeleteModal(ledgerId, name) {
+  _pendingDeleteLedgerId = ledgerId;
+  document.getElementById('ledger-delete-name-display').textContent = name;
+  const input   = document.getElementById('ledger-delete-confirm-input');
+  const confirm = document.getElementById('ledger-delete-confirm');
+  input.value   = '';
+  confirm.disabled = true;
+  input.oninput = () => {
+    confirm.disabled = input.value.trim() !== name;
+  };
+  document.getElementById('ledger-delete-overlay').hidden = false;
+  input.focus();
+}
+
+function closeLedgerDeleteModal() {
+  document.getElementById('ledger-delete-overlay').hidden = true;
+  _pendingDeleteLedgerId = null;
 }
 
 async function loadNetWorthChart() {
@@ -478,8 +1039,12 @@ function renderIncomeExpenseChart(dashboard) {
         </div>
       </div>
       <div class="legend">
-        <div class="legend-item"><span class="swatch" style="background:#1a7f64"></span><span>進帳</span><strong>${formatMoney(income)}</strong></div>
-        <div class="legend-item"><span class="swatch" style="background:#e11d48"></span><span>支出</span><strong>${formatMoney(expense)}</strong></div>
+        <div class="legend-item chart-legend-clickable" data-filter-type="income" title="點擊查看進帳明細">
+          <span class="swatch" style="background:#1a7f64"></span><span>進帳</span><strong>${formatMoney(income)}</strong>
+        </div>
+        <div class="legend-item chart-legend-clickable" data-filter-type="expense" title="點擊查看支出明細">
+          <span class="swatch" style="background:#e11d48"></span><span>支出</span><strong>${formatMoney(expense)}</strong>
+        </div>
         <div class="legend-item"><span class="swatch" style="background:#64748b"></span><span>結餘</span><strong>${formatMoney(dashboard.balance)}</strong></div>
       </div>
     </div>`;
@@ -509,7 +1074,7 @@ function renderExpenseCategoryChart(categories) {
           categories
             .map(
               (item, index) => `
-                <div class="legend-item">
+                <div class="legend-item chart-legend-clickable" data-filter-category="${escapeAttr(item.category)}" title="點擊查看「${escapeHtml(item.category)}」明細">
                   <span class="swatch" style="background:${chartColors[index % chartColors.length]}"></span>
                   <span>${escapeHtml(item.category)}</span>
                   <strong>${formatMoney(item.total)}</strong>
@@ -521,20 +1086,126 @@ function renderExpenseCategoryChart(categories) {
     </div>`;
 }
 
+// ── Chart legend click → transaction detail modal ─────────────────────────
+async function showChartDetailModal(title, params) {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const start = params.start || `${y}-${m}-01`;
+  const end   = params.end   || `${y}-${m}-${String(new Date(y, now.getMonth()+1, 0).getDate()).padStart(2,'0')}`;
+
+  const url = new URL('/api/transactions/search', window.location.origin);
+  url.searchParams.set('start', start);
+  url.searchParams.set('end', end);
+  if (params.type)     url.searchParams.set('type', params.type);
+  if (params.category) url.searchParams.set('category', params.category);
+
+  let rows = [];
+  try {
+    const res = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
+    rows = await res.json();
+  } catch (_) {}
+
+  const bodyHtml = rows.length
+    ? rows.map(t => `
+        <tr>
+          <td>${escapeHtml(String(t.createdAt || '').slice(0,10))}</td>
+          <td>${t.type === 'income' ? '進帳' : '支出'}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums;color:${t.type === 'income' ? 'var(--success)' : 'var(--danger)'}">${t.type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</td>
+          <td>${escapeHtml(t.category || '')}${t.subcategory ? ' · ' + escapeHtml(t.subcategory) : ''}</td>
+          <td>${escapeHtml(t.description || '')}</td>
+        </tr>`).join('')
+    : '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">無資料</td></tr>';
+
+  const existing = document.getElementById('chart-detail-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'chart-detail-modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-box" style="max-width:620px;width:96vw">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="margin:0">${escapeHtml(title)}</h2>
+        <button class="icon-btn" id="chart-detail-close" style="font-size:18px">✕</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:6px 10px;color:var(--muted);border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.06em">日期</th>
+              <th style="text-align:left;padding:6px 10px;color:var(--muted);border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.06em">類型</th>
+              <th style="text-align:right;padding:6px 10px;color:var(--muted);border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.06em">金額</th>
+              <th style="text-align:left;padding:6px 10px;color:var(--muted);border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.06em">分類</th>
+              <th style="text-align:left;padding:6px 10px;color:var(--muted);border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.06em">備註</th>
+            </tr>
+          </thead>
+          <tbody>${bodyHtml}</tbody>
+        </table>
+      </div>
+      <div style="margin-top:16px;text-align:right;color:var(--muted);font-size:12px">共 ${rows.length} 筆</div>
+    </div>`;
+
+  document.body.appendChild(modal);
+  document.getElementById('chart-detail-close').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+// event delegation for chart legend clicks (attached once on DOMContentLoaded)
+document.addEventListener('click', e => {
+  const item = e.target.closest('.chart-legend-clickable');
+  if (!item) return;
+  const type     = item.dataset.filterType;
+  const category = item.dataset.filterCategory;
+  const label    = item.querySelector('span:not(.swatch)')?.textContent || '';
+  showChartDetailModal(`${label} 明細`, { type, category });
+});
+
 function renderLedgerExpenseChart(ledgerStats) {
-  const maxExpense = Math.max(...ledgerStats.map((item) => Number(item.totalExpense || 0)), 0);
-  document.querySelector('#ledger-expense-chart').innerHTML =
-    ledgerStats
-      .map((item) => {
-        const percent = maxExpense > 0 ? (Number(item.totalExpense || 0) / maxExpense) * 100 : 0;
-        return `
-          <div class="bar-row">
-            <div class="bar-label" title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</div>
-            <div class="bar-track"><div class="bar-fill" style="width:${percent}%"></div></div>
-            <div class="bar-value">${formatMoney(item.totalExpense)}</div>
-          </div>`;
-      })
-      .join('') || '<div class="row">尚無帳本資料</div>';
+  const el = document.querySelector('#dashboard-ledgers');
+  if (!el) return;
+
+  if (!ledgerStats.length) {
+    el.innerHTML = '<div class="row-meta" style="padding:12px 0">尚無帳本資料</div>';
+    return;
+  }
+
+  const cards = ledgerStats.map(l => {
+    const income  = l.totalIncome  || 0;
+    const expense = l.totalExpense || 0;
+    const balance = l.balance      || 0;
+
+    // Build conic-gradient: green (remaining) → red (spent)
+    let bg;
+    if (income <= 0 && expense <= 0) {
+      bg = `conic-gradient(var(--surface-mid) 0deg 360deg)`;
+    } else if (income <= 0 || expense >= income) {
+      bg = `conic-gradient(var(--danger) 0deg 360deg)`;
+    } else {
+      const expDeg = (expense / income) * 360;
+      const balDeg = 360 - expDeg;
+      bg = `conic-gradient(var(--success) 0deg ${balDeg.toFixed(1)}deg, var(--danger) ${balDeg.toFixed(1)}deg 360deg)`;
+    }
+
+    const balColor = balance >= 0 ? 'var(--success)' : 'var(--danger)';
+
+    return `
+      <div class="ledger-donut-card" data-ledger-view="${l.ledgerId}" title="點擊查看 ${escapeAttr(l.name)} 交易明細">
+        <div class="donut donut-sm" style="background:${bg}">
+          <div class="donut-center">
+            <span class="donut-center-label">結餘</span>
+            <strong class="donut-center-value" style="color:${balColor}">${formatMoney(balance)}</strong>
+          </div>
+        </div>
+        <div class="ledger-donut-name">${escapeHtml(l.name)}</div>
+        <div class="ledger-donut-stats">
+          <span class="ledger-stat-in">↑ ${formatMoney(income)}</span>
+          <span class="ledger-stat-out">↓ ${formatMoney(expense)}</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="ledger-donut-grid">${cards}</div>`;
 }
 
 // ── Ledgers ───────────────────────────────────────────────────────────────
@@ -548,6 +1219,35 @@ async function loadLedgers() {
   renderLedgerSelect();
   renderLedgers();
   populateImportLedgerSelect();
+  loadLedgerStats();
+}
+
+async function loadLedgerStats() {
+  const now = new Date();
+  const start = toDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+  const end = toDateInput(now);
+  try {
+    const stats = await api(`/api/ledgers/stats?start=${start}&end=${end}`);
+    stats.forEach(s => {
+      const el = document.getElementById(`ledger-stats-${s.ledgerId}`);
+      if (!el) return;
+      const surplus = (s.totalIncome || 0) - (s.totalExpense || 0);
+      const color = surplus >= 0 ? 'var(--success)' : 'var(--danger)';
+      el.innerHTML = `本月 &nbsp;·&nbsp; 進帳 <strong>${formatMoney(s.totalIncome)}</strong> &nbsp;·&nbsp; 支出 <strong>${formatMoney(s.totalExpense)}</strong> &nbsp;·&nbsp; 結餘 <strong style="color:${color}">${formatMoney(surplus)}</strong>`;
+    });
+  } catch (_) {
+    document.querySelectorAll('.ledger-stat-row').forEach(el => { el.textContent = ''; });
+  }
+}
+
+function openLedgerTransactions(ledgerId) {
+  const form = document.querySelector('#transaction-filter');
+  form.querySelector('[name="ledgerId"]').value = ledgerId;
+  const now = new Date();
+  form.querySelector('[name="start"]').value = toDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+  form.querySelector('[name="end"]').value = toDateInput(now);
+  setView('transactions');
+  loadTransactions();
 }
 
 function renderLedgerSelect() {
@@ -573,30 +1273,33 @@ function renderLedgers() {
     state.archivedLedgers.map(renderArchivedLedger).join('') || '<div class="row">目前沒有封存帳本</div>';
 }
 
-function renderActiveLedger(ledger) {
+function renderActiveLedger(ledger, index) {
+  const color = chartColors[index % chartColors.length];
   return `
-    <div class="row">
-      <div class="row-main">
-        <div class="row-title">${escapeHtml(ledger.name)}</div>
-        <div class="row-meta">ledgerId: ${ledger.ledgerId}</div>
+    <div class="ledger-card" style="--ledger-color:${color}">
+      <div class="ledger-card-top">
+        <div class="ledger-card-name">${escapeHtml(ledger.name)}</div>
+        <div class="pocket-card-actions">
+          <button class="icon-btn" data-ledger-rename="${ledger.ledgerId}" title="改名">✏</button>
+          <button class="icon-btn danger-icon" data-ledger-archive="${ledger.ledgerId}" title="封存">📦</button>
+          <button class="icon-btn danger-icon" data-ledger-delete="${ledger.ledgerId}" data-ledger-name="${escapeAttr(ledger.name)}" title="刪除">🗑</button>
+        </div>
       </div>
-      <div class="actions">
-        <button class="secondary" data-ledger-rename="${ledger.ledgerId}">改名</button>
-        <button class="danger" data-ledger-archive="${ledger.ledgerId}">封存</button>
-      </div>
+      <div class="ledger-card-stats ledger-stat-row" id="ledger-stats-${ledger.ledgerId}">載入中…</div>
+      <button data-ledger-view="${ledger.ledgerId}" style="width:100%">查看交易</button>
     </div>`;
 }
 
 function renderArchivedLedger(ledger) {
   return `
-    <div class="row">
-      <div class="row-main">
-        <div class="row-title">${escapeHtml(ledger.name)}</div>
-        <div class="row-meta">已封存</div>
+    <div class="ledger-card ledger-card-archived">
+      <div class="ledger-card-top">
+        <div class="ledger-card-name">${escapeHtml(ledger.name)}</div>
+        <div class="pocket-card-actions">
+          <button class="icon-btn" data-ledger-unarchive="${ledger.ledgerId}" title="取消封存">↩</button>
+        </div>
       </div>
-      <div class="actions">
-        <button data-ledger-unarchive="${ledger.ledgerId}">取消封存</button>
-      </div>
+      <div style="font-size:var(--text-xs);color:var(--muted);margin-top:2px">已封存</div>
     </div>`;
 }
 
@@ -787,56 +1490,128 @@ async function getExchangeRates() {
   } catch { return {}; }
 }
 
+const pocketColors = ['#2dd4a0','#fbbf24','#818cf8','#38bdf8','#f87171','#34d399','#c084fc','#60a5fa','#fb923c','#4ade80'];
+
 async function loadAccounts() {
   try {
-    const [data, rates] = await Promise.all([
-      api('/api/accounts'),
-      getExchangeRates(),
-    ]);
-    renderAccounts(data, rates);
-    renderAccountsDonutChart(data.accounts || []);
-  } catch (err) {
-    document.querySelector('#accounts-list').innerHTML = '<div class="row">尚無帳戶資料</div>';
+    const data = await api('/api/accounts');
+    renderAccounts(data);
+  } catch {
+    const g = document.getElementById('pocket-grid');
+    if (g) g.innerHTML = '<div class="row-meta">無法載入口袋資料</div>';
   }
 }
 
-function renderAccounts(data, rates) {
+function renderAccounts(data) {
   const accounts = data.accounts || [];
-  document.querySelector('#account-total-assets').textContent = formatMoney(data.totalAssets);
-  document.querySelector('#account-total-liabilities').textContent = formatMoney(data.totalLiabilities);
-  document.querySelector('#account-net-worth').textContent = formatMoney(data.netWorth);
-  document.querySelector('#account-count').textContent = accounts.length;
-  document.querySelector('#accounts-list').innerHTML =
-    accounts.map(a => renderAccount(a, rates)).join('') || '<div class="row">尚無帳戶</div>';
+  document.getElementById('account-total-assets').textContent    = formatMoney(data.totalAssets);
+  document.getElementById('account-total-liabilities').textContent = formatMoney(data.totalLiabilities);
+  document.getElementById('account-net-worth').textContent       = formatMoney(data.netWorth);
 
-  const fromSel = document.querySelector('#transfer-from');
-  const toSel = document.querySelector('#transfer-to');
-  const opts =
-    '<option value="">選擇帳戶</option>' +
-    accounts.map((a) => `<option value="${a.accountId}">${escapeHtml(a.name)}</option>`).join('');
-  fromSel.innerHTML = opts;
-  toSel.innerHTML = opts;
+  const grid = document.getElementById('pocket-grid');
+  if (grid) {
+    grid.innerHTML = accounts.length
+      ? accounts.map((a, i) => renderPocketCard(a, i)).join('')
+      : '<div class="pocket-empty">還沒有口袋，點「＋ 新增口袋」開始吧</div>';
+  }
+
+  // Transfer form: populate ledger dropdowns with account info
+  const fromLedgerSel = document.getElementById('transfer-from-ledger');
+  const toLedgerSel   = document.getElementById('transfer-to-ledger');
+  if (fromLedgerSel && toLedgerSel) {
+    const accountMap = Object.fromEntries(accounts.map(a => [a.accountId, a.name]));
+    const ledgerOpts = '<option value="">選擇帳本</option>' +
+      state.ledgers.map(l => {
+        const acctName = l.accountId ? accountMap[l.accountId] || '' : '';
+        const label = acctName ? `${escapeHtml(l.name)}（${escapeHtml(acctName)}）` : escapeHtml(l.name);
+        return `<option value="${l.ledgerId}" data-account-id="${l.accountId || ''}" data-account-name="${escapeAttr(acctName)}">${label}</option>`;
+      }).join('');
+    fromLedgerSel.innerHTML = ledgerOpts;
+    toLedgerSel.innerHTML   = ledgerOpts;
+  }
 }
 
-function renderAccount(a, rates) {
-  const typeLabel = accountTypeLabels[a.type] || a.type;
-  const currency = a.currency || 'TWD';
-  let twdNote = '';
-  if (currency !== 'TWD' && rates && rates[currency]) {
-    const twd = Math.round(a.balance * rates[currency]);
-    twdNote = ` <span class="twd-equiv">≈ NT$${twd.toLocaleString()}</span>`;
-  }
+function renderPocketCard(a, idx) {
+  const color = pocketColors[idx % pocketColors.length];
+  // computedBalance = base balance + net of linked ledger transactions (from API)
+  const bal      = a.computedBalance ?? a.balance ?? 0;
+  const baseBal  = a.balance ?? 0;
+  const balColor = bal < 0 ? 'var(--danger)' : 'var(--text)';
+
+  // All ledgers belonging to this pocket
+  const pocketLedgers = state.ledgers.filter(l => l.accountId === a.accountId);
+  const hasLinkedLedgers = pocketLedgers.length > 0;
+  const ledgerList = pocketLedgers.map(l => `
+    <div class="pocket-ledger-item">
+      <button class="pocket-ledger-link" data-pocket-open-ledger="${l.ledgerId}">📒 ${escapeHtml(l.name)}</button>
+      <button class="icon-btn" data-ledger-transfer="${l.ledgerId}" data-ledger-name="${escapeAttr(l.name)}" data-from-account="${a.accountId}" title="移轉帳本">↗</button>
+      <button class="icon-btn danger-icon pocket-ledger-del" data-ledger-delete="${l.ledgerId}" title="刪除帳本">✕</button>
+    </div>`).join('');
+
+  // Show base balance breakdown only when linked ledgers exist and values differ
+  const txNet = bal - baseBal;
+  const breakdownHtml = hasLinkedLedgers ? `
+    <div class="pocket-balance-breakdown">
+      <span>起始 ${formatMoney(baseBal)}</span>
+      <span class="${txNet >= 0 ? 'income-color' : 'expense-color'}">${txNet >= 0 ? '＋' : ''}${formatMoney(txNet)} 帳本</span>
+    </div>` : '';
+
   return `
-    <div class="row">
-      <div class="row-main">
-        <div class="row-title">${escapeHtml(a.name)}<span class="account-badge">${escapeHtml(typeLabel)}</span></div>
-        <div class="row-meta">${formatMoney(a.balance)} ${escapeHtml(currency)}${twdNote}</div>
+    <div class="pocket-card" style="--pocket-color:${color}" data-account-id="${a.accountId}">
+      <div class="pocket-card-top">
+        <span class="pocket-name">${escapeHtml(a.name)}</span>
+        <div class="pocket-card-actions">
+          <button class="icon-btn" data-account-edit="${a.accountId}" title="改名">✏</button>
+          <button class="icon-btn danger-icon" data-account-delete="${a.accountId}" title="刪除">✕</button>
+        </div>
       </div>
-      <div class="actions">
-        <button class="secondary" data-account-edit="${a.accountId}">改名</button>
-        <button class="danger" data-account-delete="${a.accountId}">刪除</button>
+      <div class="pocket-balance" style="color:${balColor}">${formatMoney(bal)}</div>
+      ${breakdownHtml}
+      <div class="pocket-amount-row" id="pocket-amount-${a.accountId}" ${bal !== 0 ? 'hidden' : ''}>
+        <input class="pocket-amount-input" type="number" min="0.01" step="0.01"
+               placeholder="${bal === 0 ? '設定初始金額' : '金額'}"
+               data-pocket-input="${a.accountId}" />
+      </div>
+      <div class="pocket-card-btns">
+        <button class="pocket-btn-deposit" data-pocket-deposit="${a.accountId}">＋ 存入</button>
+        <button class="pocket-btn-withdraw" data-pocket-withdraw="${a.accountId}">－ 提取</button>
+      </div>
+      <div class="pocket-ledger-row">
+        ${ledgerList}
+        <button class="pocket-ledger-create" data-pocket-create-ledger="${a.accountId}" data-pocket-name="${escapeAttr(a.name)}">＋ 建立帳本</button>
       </div>
     </div>`;
+}
+
+// ── Pocket amount input helpers ───────────────────────────────────────────
+function getPocketInput(accountId) {
+  return document.querySelector(`[data-pocket-input="${accountId}"]`);
+}
+
+function showPocketInput(accountId) {
+  const row = document.getElementById(`pocket-amount-${accountId}`);
+  if (!row) return;
+  row.hidden = false;
+  const input = row.querySelector('.pocket-amount-input');
+  input.value = '';
+  input.focus();
+}
+
+async function commitPocketAdjust(accountId, mode) {
+  const input = getPocketInput(accountId);
+  const amt = Number(input?.value);
+  if (!amt || amt <= 0) {
+    input?.focus();
+    showStatus('請輸入有效金額', true);
+    return;
+  }
+  const data = await api('/api/accounts');
+  const acc  = (data.accounts || []).find(a => String(a.accountId) === String(accountId));
+  if (!acc) return;
+  const newBalance = mode === 'deposit' ? acc.balance + amt : acc.balance - amt;
+  await api(`/api/accounts/${accountId}`, { method: 'PATCH', body: JSON.stringify({ balance: newBalance }) });
+  await loadAccounts();
+  showStatus(mode === 'deposit' ? `已存入 ${formatMoney(amt)}` : `已提取 ${formatMoney(amt)}`);
 }
 
 // ── Budget ────────────────────────────────────────────────────────────────
@@ -1946,11 +2721,20 @@ function initTemplateForm() {
   const tplSubcategory = document.getElementById('tpl-subcategory');
   const tplPayment = document.getElementById('tpl-payment');
   if (!form) return;
+  // Prevent duplicate listeners on repeated navigation
+  if (form.dataset.initialized) { populateTplDropdowns(); return; }
+  form.dataset.initialized = '1';
 
-  // Populate ledgers
-  if (tplLedger) {
-    tplLedger.innerHTML = state.ledgers.map(l => `<option value="${l.ledgerId}">${escapeHtml(l.name)}</option>`).join('');
+  function populateTplDropdowns() {
+    if (tplLedger) {
+      tplLedger.innerHTML = state.ledgers.map(l => `<option value="${l.ledgerId}">${escapeHtml(l.name)}</option>`).join('');
+    }
+    if (tplPayment) {
+      tplPayment.innerHTML = (state.settings?.paymentMethods || []).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+    }
+    populateTplCats();
   }
+
   // Populate categories based on type
   function populateTplCats() {
     const type = form.querySelector('[name="type"]').value;
@@ -1976,10 +2760,7 @@ function initTemplateForm() {
     const selected = cats.find(c => c.name === tplCategory.value);
     populateTplSubcats(selected);
   });
-  if (tplPayment) {
-    tplPayment.innerHTML = (state.settings?.paymentMethods || []).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
-  }
-  populateTplCats();
+  populateTplDropdowns();
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2292,7 +3073,17 @@ function updateModalSubcategories() {
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────
+const _viewCatMap = {
+  dashboard: 'accounting', transactions: 'accounting', accounts: 'accounting',
+  ledgers: 'accounting', 'accounting-settings': 'accounting',
+  budget: 'planning', goals: 'planning', recurring: 'planning', reminders: 'planning',
+  'finance-trends': 'analysis', calendar: 'analysis', reports: 'analysis',
+  splits: 'other', utility: 'other', settings: 'other',
+};
+
 function setView(view) {
+  // Stop wave animation when leaving dashboard
+  if (state.currentView === 'dashboard' && view !== 'dashboard') stopWaveAnimation();
   state.currentView = view;
   document.querySelectorAll('.nav-button').forEach((button) => {
     button.classList.toggle('active', button.dataset.view === view);
@@ -2300,15 +3091,20 @@ function setView(view) {
   document.querySelectorAll('.view').forEach((section) => {
     section.classList.toggle('active', section.id === `${view}-view`);
   });
+  // Activate the right category tab
+  const activeCat = _viewCatMap[view] || 'accounting';
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === activeCat));
   const titles = {
     dashboard: '總覽',
     transactions: '交易',
     accounts: '帳戶',
     ledgers: '帳本',
+    'accounting-settings': '記帳設定',
     budget: '預算管理',
     goals: '儲蓄目標',
     recurring: '定期交易',
     reminders: '帳單提醒',
+    'finance-trends': '財務動態',
     reports: '趨勢報表',
     splits: '分帳',
     utility: '水電用量追蹤',
@@ -2319,20 +3115,28 @@ function setView(view) {
 
   // Initialize recurring form when navigating to it
   if (view === 'recurring') initRecurringForm();
-  // Load templates when navigating to transactions
-  if (view === 'transactions') {
+  // Load templates + import select when navigating to accounting-settings
+  if (view === 'accounting-settings') {
     loadTemplates();
     initTemplateForm();
+    populateImportLedgerSelect();
   }
   if (view === 'utility') loadUtility();
   if (view === 'calendar') loadCalendar();
+  if (view === 'finance-trends') loadFinanceTrends();
+}
+
+function loadFinanceTrends() {
+  apiFetch('/api/reports/trend?months=6').then(r => r.json()).then(renderDashboardSparkline).catch(() => {});
+  loadNetWorthChart().catch(() => {});
 }
 
 async function refreshCurrentView() {
   await loadLedgers();
   if (state.currentView === 'dashboard') await loadDashboard();
   if (state.currentView === 'settings') await loadSettings();
-  if (state.currentView === 'transactions') { await loadTransactions(); await loadTemplates(); }
+  if (state.currentView === 'transactions') await loadTransactions();
+  if (state.currentView === 'accounting-settings') { await loadTemplates(); populateImportLedgerSelect(); }
   if (state.currentView === 'budget') await loadBudgets();
   if (state.currentView === 'reports') await loadReports();
   if (state.currentView === 'accounts') await loadAccounts();
@@ -2342,6 +3146,7 @@ async function refreshCurrentView() {
   if (state.currentView === 'splits') await loadSplits();
   if (state.currentView === 'utility') await loadUtility();
   if (state.currentView === 'calendar') await loadCalendar();
+  if (state.currentView === 'finance-trends') loadFinanceTrends();
 }
 
 // ── Merchant memory ───────────────────────────────────────────────────────
@@ -2418,11 +3223,108 @@ document.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
 
-  // Navigation
+  // Navigation — sub-page button inside dropdown
   const nav = target.closest('.nav-button');
   if (nav) {
     setView(nav.dataset.view);
     await refreshCurrentView();
+    return;
+  }
+
+  // 總資產卡片 → 開啟趨勢彈窗
+  if (target.closest('.dashboard-assets-panel') && !target.closest('button')) {
+    openAssetsTrendModal();
+    return;
+  }
+
+  // 帳本移轉 modal
+  if (target.id === 'ledger-transfer-cancel' || target.id === 'ledger-transfer-overlay') {
+    closeLedgerTransferModal(); return;
+  }
+  if (target.id === 'ledger-transfer-confirm' && _transferLedgerId) {
+    const sel = document.getElementById('ledger-transfer-target');
+    if (!sel.value) { showStatus('請選擇目標帳戶', true); return; }
+    try {
+      await api(`/api/ledgers/${_transferLedgerId}/account`, { method: 'PATCH', body: JSON.stringify({ accountId: Number(sel.value) }) });
+      closeLedgerTransferModal();
+      await loadAccounts();
+      await loadLedgers();
+      showStatus('已移轉帳本');
+    } catch (err) { showStatus(err.message || '移轉失敗', true); }
+    return;
+  }
+  const transferBtn = target.closest('[data-ledger-transfer]');
+  if (transferBtn) {
+    openLedgerTransferModal(transferBtn.dataset.ledgerTransfer, transferBtn.dataset.ledgerName, transferBtn.dataset.fromAccount);
+    return;
+  }
+
+  // 帳本刪除確認 modal
+  if (target.id === 'ledger-delete-cancel' || target.id === 'ledger-delete-overlay') {
+    closeLedgerDeleteModal();
+    return;
+  }
+  if (target.id === 'ledger-delete-confirm' && _pendingDeleteLedgerId) {
+    try {
+      await api(`/api/ledgers/${_pendingDeleteLedgerId}`, { method: 'DELETE' });
+      closeLedgerDeleteModal();
+      await loadLedgers();
+      await loadAccounts();
+      showStatus('已刪除帳本');
+    } catch (err) {
+      showStatus(err.message || '刪除失敗', true);
+    }
+    return;
+  }
+
+  // 總資產彈窗：關閉
+  if (target.id === 'assets-trend-modal-close' || target.id === 'assets-trend-modal-overlay') {
+    closeAssetsTrendModal();
+    return;
+  }
+
+  // 總資產彈窗：時間範圍 tab
+  const rangeTab = target.closest('[data-assets-range]');
+  if (rangeTab) {
+    _assetsTrendRange = rangeTab.dataset.assetsRange;
+    document.querySelectorAll('[data-assets-range]').forEach(b => b.classList.toggle('active', b === rangeTab));
+    renderAssetsTrendModalChart();
+    return;
+  }
+
+  // 總資產彈窗：圖表樣式切換
+  const styleBtn = target.closest('[data-assets-style]');
+  if (styleBtn) {
+    _assetsTrendStyle = styleBtn.dataset.assetsStyle;
+    document.querySelectorAll('[data-assets-style]').forEach(b => b.classList.toggle('active', b === styleBtn));
+    renderAssetsTrendModalChart();
+    return;
+  }
+
+  // 總資產彈窗：顯示/隱藏資料點
+  if (target.id === 'assets-toggle-points') {
+    _assetsTrendShowPoints = !_assetsTrendShowPoints;
+    target.classList.toggle('active', _assetsTrendShowPoints);
+    target.dataset.assetsPoints = _assetsTrendShowPoints ? 'on' : 'off';
+    renderAssetsTrendModalChart();
+    return;
+  }
+
+  // Page-level tabs (e.g. 交易查詢 / 進階搜尋)
+  const pageTab = target.closest('.page-tab');
+  if (pageTab) {
+    const tabId = pageTab.dataset.tab;
+    const container = pageTab.closest('.view');
+    container.querySelectorAll('.page-tab').forEach(t => t.classList.toggle('active', t === pageTab));
+    container.querySelectorAll('.page-tab-panel').forEach(p => p.classList.toggle('active', p.id === `${tabId}-panel`));
+    return;
+  }
+
+  // Navigation — category tab button (navigate to first view in category)
+  const catBtn = target.closest('.cat-btn');
+  if (catBtn && !target.closest('.cat-dropdown')) {
+    const firstView = catBtn.closest('.cat-item')?.querySelector('.nav-button')?.dataset.view;
+    if (firstView) { setView(firstView); await refreshCurrentView(); }
     return;
   }
 
@@ -2474,11 +3376,38 @@ document.addEventListener('click', async (event) => {
       row.innerHTML = `<input name="pname" placeholder="名稱" /><input type="number" name="pamount" placeholder="金額" min="0" step="0.01" /><button type="button" class="danger participant-remove">✕</button>`;
       document.querySelector('#split-participants-rows').appendChild(row);
       return;
+    } else if (target.dataset.ledgerView) {
+      openLedgerTransactions(Number(target.dataset.ledgerView));
+    } else if (target.dataset.preset) {
+      const form = document.querySelector('#transaction-filter');
+      const now = new Date();
+      let start, end;
+      if (target.dataset.preset === 'today') {
+        start = end = toDateInput(now);
+      } else if (target.dataset.preset === 'week') {
+        const day = now.getDay() || 7;
+        start = toDateInput(new Date(now.getTime() - (day - 1) * 86400000));
+        end = toDateInput(now);
+      } else if (target.dataset.preset === 'month') {
+        start = toDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+        end = toDateInput(now);
+      } else if (target.dataset.preset === 'last-month') {
+        const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+        start = toDateInput(new Date(lastDay.getFullYear(), lastDay.getMonth(), 1));
+        end = toDateInput(lastDay);
+      }
+      if (start && end) {
+        form.querySelector('[name="start"]').value = start;
+        form.querySelector('[name="end"]').value = end;
+        loadTransactions();
+      }
     } else if (target.dataset.ledgerRename) {
       const ledger = state.ledgers.find((item) => item.ledgerId === Number(target.dataset.ledgerRename));
       const name = prompt('新的帳本名稱', ledger?.name || '');
       if (name) await api(`/api/ledgers/${target.dataset.ledgerRename}/name`, { method: 'PATCH', body: JSON.stringify({ name }) });
       await refreshCurrentView();
+    } else if (target.dataset.ledgerDelete) {
+      openLedgerDeleteModal(target.dataset.ledgerDelete, target.dataset.ledgerName || '');
     } else if (target.dataset.ledgerArchive) {
       if (confirm('確定要封存這個帳本？')) {
         await api(`/api/ledgers/${target.dataset.ledgerArchive}/archive`, { method: 'PATCH' });
@@ -2517,16 +3446,56 @@ document.addEventListener('click', async (event) => {
       }
       return;
     } else if (target.dataset.accountEdit) {
-      const name = prompt('新的帳戶名稱');
+      const name = prompt('新的口袋名稱');
       if (name) {
         await api(`/api/accounts/${target.dataset.accountEdit}`, { method: 'PATCH', body: JSON.stringify({ name }) });
         await loadAccounts();
       }
     } else if (target.dataset.accountDelete) {
-      if (confirm('確定要刪除此帳戶？')) {
+      if (confirm('確定要刪除此口袋？')) {
         await api(`/api/accounts/${target.dataset.accountDelete}`, { method: 'DELETE' });
         await loadAccounts();
       }
+    } else if (target.dataset.pocketDeposit) {
+      const id = target.dataset.pocketDeposit;
+      const input = getPocketInput(id);
+      const row = document.getElementById(`pocket-amount-${id}`);
+      if (row?.hidden) {
+        // 第一次按：顯示輸入框
+        showPocketInput(id);
+      } else {
+        // 已有輸入框且值有效：直接存入
+        await commitPocketAdjust(id, 'deposit');
+      }
+    } else if (target.dataset.pocketWithdraw) {
+      const id = target.dataset.pocketWithdraw;
+      const row = document.getElementById(`pocket-amount-${id}`);
+      if (row?.hidden) {
+        // 第一次按：顯示輸入框
+        showPocketInput(id);
+      } else {
+        // 已有輸入框且值有效：直接提取
+        await commitPocketAdjust(id, 'withdraw');
+      }
+    } else if (target.dataset.pocketCreateLedger) {
+      const accountId = target.dataset.pocketCreateLedger;
+      const defaultName = target.dataset.pocketName || '';
+      const name = prompt('帳本名稱', defaultName) ?? '';
+      if (!name.trim()) return;
+      try {
+        await api('/api/ledgers', { method: 'POST', body: JSON.stringify({ name: name.trim(), accountId: Number(accountId) }) });
+        await loadLedgers();
+        await loadAccounts();
+        showStatus(`已建立帳本「${name.trim()}」`);
+      } catch (err) {
+        showStatus(err.message || '建立失敗', true);
+      }
+    } else if (target.dataset.pocketOpenLedger) {
+      const ledgerId = target.dataset.pocketOpenLedger;
+      const sel = document.querySelector('#transaction-filter select[name=ledgerId]');
+      if (sel) sel.value = ledgerId;
+      setView('transactions');
+      loadTransactions();
     } else if (target.dataset.goalDeposit) {
       const amount = prompt('存入金額');
       if (amount && Number(amount) > 0) {
@@ -2770,6 +3739,25 @@ document.querySelector('#transaction-filter').addEventListener('submit', loadTra
 document.querySelector('#advanced-search-form').addEventListener('submit', runAdvancedSearch);
 
 // CSV Import
+document.getElementById('download-csv-template-btn').addEventListener('click', () => {
+  const rows = [
+    'type,amount,category,subcategory,paymentMethod,description',
+    'expense,150,食,早餐,現金,7-11 早餐',
+    'expense,1200,住,水費,信用卡,台水 6 月水費',
+    'expense,350,行,捷運,悠遊卡,上班通勤',
+    'expense,500,樂,電影,信用卡,週末看電影',
+    'income,50000,薪資,月薪,匯款,6 月薪資',
+    'income,2000,被動收入,利息,匯款,定存利息',
+  ];
+  const blob = new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '匯入範本.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
 document.querySelector('#import-csv-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.currentTarget;
@@ -2798,64 +3786,122 @@ document.querySelector('#import-csv-form').addEventListener('submit', async (e) 
 });
 
 // Ledger create form
-document.querySelector('#ledger-create-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const name = event.currentTarget.name.value.trim();
-  if (!name) return;
-  try {
-    await api('/api/ledgers', { method: 'POST', body: JSON.stringify({ name }) });
-    event.currentTarget.reset();
-    await refreshCurrentView();
-    showStatus('已新增帳本');
-  } catch (err) {
-    showStatus(err.message || '新增失敗', true);
+// 帳本新增表單已移除（帳本請從帳戶頁建立）
+const _ledgerCreateForm = document.querySelector('#ledger-create-form');
+if (_ledgerCreateForm) {
+  _ledgerCreateForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const name = event.currentTarget.name.value.trim();
+    if (!name) return;
+    try {
+      await api('/api/ledgers', { method: 'POST', body: JSON.stringify({ name }) });
+      event.currentTarget.reset();
+      await refreshCurrentView();
+      showStatus('已新增帳本');
+    } catch (err) {
+      showStatus(err.message || '新增失敗', true);
+    }
+  });
+}
+
+// 新增口袋：開關 panel
+// Pocket amount input: Enter = deposit, Escape = close
+document.getElementById('pocket-grid').addEventListener('keydown', async (e) => {
+  const input = e.target.closest('.pocket-amount-input');
+  if (!input) return;
+  const id = input.dataset.pocketInput;
+  if (e.key === 'Escape') {
+    const row = document.getElementById(`pocket-amount-${id}`);
+    if (row) { row.hidden = true; input.value = ''; }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    // Default Enter = deposit; user can still click withdraw button
+    await commitPocketAdjust(id, 'deposit');
   }
+}, { passive: false });
+
+document.getElementById('pocket-add-btn').addEventListener('click', () => {
+  const panel = document.getElementById('pocket-add-panel');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) panel.querySelector('input[name=name]').focus();
+});
+document.getElementById('pocket-add-cancel').addEventListener('click', () => {
+  document.getElementById('pocket-add-panel').hidden = true;
 });
 
-// Account create form
 document.querySelector('#account-create-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   const name = form.name.value.trim();
-  if (!name) { showStatus('請輸入帳戶名稱', true); return; }
+  if (!name) { showStatus('請輸入口袋名稱', true); return; }
   try {
     await api('/api/accounts', {
       method: 'POST',
       body: JSON.stringify({
         name,
-        type: form.type.value,
+        type: 'other',
         balance: Number(form.balance.value || 0),
-        currency: form.currency.value,
+        currency: 'TWD',
       }),
     });
     form.reset();
+    document.getElementById('pocket-add-panel').hidden = true;
     await loadAccounts();
-    showStatus('已新增帳戶');
+    showStatus('已新增口袋');
   } catch (err) {
     showStatus(err.message || '新增失敗', true);
   }
 });
 
-// Transfer form
+// Transfer form – ledger-based selects with account hint
+(function() {
+  function updateAccountHint(selId, hintId) {
+    const sel  = document.getElementById(selId);
+    const hint = document.getElementById(hintId);
+    if (!sel || !hint) return;
+    sel.addEventListener('change', () => {
+      const opt = sel.selectedOptions[0];
+      const name = opt?.dataset.accountName || '';
+      hint.textContent = name ? `帳戶：${name}` : '';
+    });
+  }
+  updateAccountHint('transfer-from-ledger', 'transfer-from-account');
+  updateAccountHint('transfer-to-ledger',   'transfer-to-account');
+})();
+
 document.querySelector('#transfer-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
-  const fromAccountId = Number(form.fromAccountId.value);
-  const toAccountId = Number(form.toAccountId.value);
+  const fromLedgerId = Number(form.fromLedgerId.value);
+  const toLedgerId   = Number(form.toLedgerId.value);
   const amount = Number(form.amount.value);
-  if (!fromAccountId || !toAccountId) { showStatus('請選擇轉出和轉入帳戶', true); return; }
-  if (fromAccountId === toAccountId) { showStatus('轉出和轉入帳戶不能相同', true); return; }
-  if (!amount || amount <= 0) { showStatus('請輸入有效金額', true); return; }
+  if (!fromLedgerId || !toLedgerId) { showStatus('請選擇轉出和轉入帳本', true); return; }
+  if (fromLedgerId === toLedgerId)  { showStatus('轉出和轉入帳本不能相同', true); return; }
+  if (!amount || amount <= 0)       { showStatus('請輸入有效金額', true); return; }
+
+  // Resolve accountIds from selected ledgers
+  const fromLedger = state.ledgers.find(l => l.ledgerId === fromLedgerId);
+  const toLedger   = state.ledgers.find(l => l.ledgerId === toLedgerId);
+  const fromAccountId = fromLedger?.accountId || null;
+  const toAccountId   = toLedger?.accountId   || null;
+
   try {
     await api('/api/accounts/transfer', {
       method: 'POST',
-      body: JSON.stringify({ fromAccountId, toAccountId, amount, note: form.note.value.trim() }),
+      body: JSON.stringify({ fromAccountId, toAccountId, fromLedgerId, toLedgerId, amount, note: form.note.value.trim() }),
     });
     form.reset();
+    document.getElementById('transfer-from-account').textContent = '';
+    document.getElementById('transfer-to-account').textContent   = '';
     await loadAccounts();
     showStatus('轉帳完成');
   } catch (err) {
-    showStatus(err.message || '轉帳失敗', true);
+    const msg = {
+      FROM_LEDGER_NO_ACCOUNT: '轉出帳本未連結帳戶',
+      TO_LEDGER_NO_ACCOUNT:   '轉入帳本未連結帳戶',
+      SAME_ACCOUNT:           '轉出與轉入屬於同一個帳戶',
+    }[err.message] || err.message || '轉帳失敗';
+    showStatus(msg, true);
   }
 });
 
@@ -3105,7 +4151,12 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     _searchTimer = setTimeout(() => runSearch(e.target.value), 280);
   });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeSearch();
+    if (e.key === 'Escape') {
+      closeSearch();
+      closeAssetsTrendModal();
+      closeLedgerDeleteModal();
+      closeLedgerTransferModal();
+    }
     if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); openSearch(); }
   });
 

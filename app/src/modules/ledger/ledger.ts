@@ -4,28 +4,8 @@ import { Ledger } from '../../types';
 import { LEDGER_NAMES } from '../../constants';
 
 export class LedgerModule {
-  async createDefaultLedgers(userId: number): Promise<void> {
-    // Check if user already has ledgers
-    const existing = await db.get(
-      'SELECT COUNT(*) as count FROM ledgers WHERE userId = ?',
-      [userId]
-    ) as any;
-
-    if (existing.count > 0) {
-      return;
-    }
-
-    // Create 5 default ledgers
-    for (let i = 1; i <= 5; i++) {
-      const name = LEDGER_NAMES[i as keyof typeof LEDGER_NAMES];
-      await db.run(
-        'INSERT INTO ledgers (userId, name, isArchived) VALUES (?, ?, 0)',
-        [userId, name]
-      );
-    }
-
-    // Invalidate cache
-    await cacheManager.invalidateLedgerCache(userId);
+  async createDefaultLedgers(_userId: number): Promise<void> {
+    // No default ledgers — users start with a clean slate
   }
 
   async getUserLedgers(userId: number): Promise<Ledger[]> {
@@ -93,7 +73,7 @@ export class LedgerModule {
     return renamedLedger as Ledger;
   }
 
-  async createLedger(userId: number, name: string): Promise<Ledger> {
+  async createLedger(userId: number, name: string, accountId?: number | null): Promise<Ledger> {
     const normalizedName = this.normalizeLedgerName(name);
     const duplicate = await db.get<Ledger>(
       'SELECT * FROM ledgers WHERE userId = ? AND name = ? AND COALESCE(isArchived, 0) = 0',
@@ -104,8 +84,8 @@ export class LedgerModule {
     }
 
     const result = await db.run(
-      'INSERT INTO ledgers (userId, name, isArchived) VALUES (?, ?, 0)',
-      [userId, normalizedName]
+      'INSERT INTO ledgers (userId, name, isArchived, accountId) VALUES (?, ?, 0, ?)',
+      [userId, normalizedName, accountId ?? null]
     );
     await cacheManager.invalidateLedgerCache(userId);
 

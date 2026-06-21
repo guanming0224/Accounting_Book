@@ -114,13 +114,31 @@ function requireAuth(req: Request, res: Response): boolean {
   return false;
 }
 
+// Returns accounts with computedBalance = base balance + net of linked ledger transactions
+async function getAccountsWithComputedBalance(userId: number): Promise<any[]> {
+  return db.all<any>(`
+    SELECT a.*,
+      a.balance + COALESCE((
+        SELECT SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE -t.amount END)
+        FROM ledgers l
+        JOIN transactions t ON t.ledgerId = l.ledgerId
+        WHERE l.accountId = a.accountId AND COALESCE(l.isArchived, 0) = 0
+      ), 0) AS computedBalance
+    FROM accounts a
+    WHERE a.userId = ?
+    ORDER BY a.createdAt ASC
+  `, [userId]);
+}
+
 async function recordNetWorthSnapshot(userId: number): Promise<void> {
   const { year, month, day } = getTaipeiTodayParts();
   const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  const accounts = await db.all<any>('SELECT * FROM accounts WHERE userId = ?', [userId]);
+  const accounts = await getAccountsWithComputedBalance(userId);
   if (!accounts.length) return;
-  const totalAssets = accounts.filter((a: any) => a.balance >= 0).reduce((s: number, a: any) => s + a.balance, 0);
-  const totalLiabilities = accounts.filter((a: any) => a.balance < 0).reduce((s: number, a: any) => s + Math.abs(a.balance), 0);
+  const totalAssets = accounts.filter((a: any) => (a.computedBalance ?? a.balance) >= 0)
+    .reduce((s: number, a: any) => s + (a.computedBalance ?? a.balance), 0);
+  const totalLiabilities = accounts.filter((a: any) => (a.computedBalance ?? a.balance) < 0)
+    .reduce((s: number, a: any) => s + Math.abs(a.computedBalance ?? a.balance), 0);
   const netWorth = totalAssets - totalLiabilities;
   await db.run(
     `INSERT INTO net_worth_snapshots (userId, totalAssets, totalLiabilities, netWorth, recordedDate)
@@ -599,9 +617,24 @@ async function startWebServer() {
     res.json(await ledgerModule.getArchivedLedgers(await resolveUserId(req)));
   }));
 
+  app.get('/api/ledgers/stats', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const ledgers = await ledgerModule.getUserLedgers(userId);
+    const { startDate, endDate } = parseDateRange(req);
+    const stats = await Promise.all(
+      ledgers.map(async (l) => {
+        const s = await transactionModule.getLedgerStatsByDateRange(l.ledgerId, startDate, endDate);
+        return { ledgerId: l.ledgerId, name: l.name, ...s };
+      })
+    );
+    res.json(stats);
+  }));
+
   app.post('/api/ledgers', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const ledger = await ledgerModule.createLedger(await resolveUserId(req), String(req.body.name || ''));
+    const accountId = req.body.accountId ? Number(req.body.accountId) : null;
+    const ledger = await ledgerModule.createLedger(await resolveUserId(req), String(req.body.name || ''), accountId);
     res.json(ledger);
   }));
 
@@ -624,6 +657,30 @@ async function startWebServer() {
   app.patch('/api/ledgers/:id/unarchive', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     await ledgerModule.unarchiveLedger(await resolveUserId(req), Number(req.params.id));
+    res.json({ ok: true });
+  }));
+
+  app.patch('/api/ledgers/:id/account', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId   = await resolveUserId(req);
+    const ledgerId = Number(req.params.id);
+    const accountId = req.body.accountId != null ? Number(req.body.accountId) : null;
+    const ledger = await db.get<any>('SELECT * FROM ledgers WHERE ledgerId = ? AND userId = ?', [ledgerId, userId]);
+    if (!ledger) throw new Error('LEDGER_NOT_FOUND');
+    await db.run('UPDATE ledgers SET accountId = ? WHERE ledgerId = ?', [accountId, ledgerId]);
+    await cacheManager.invalidateLedgerCache(userId);
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/ledgers/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const ledgerId = Number(req.params.id);
+    const ledger = await db.get<any>('SELECT * FROM ledgers WHERE ledgerId = ? AND userId = ?', [ledgerId, userId]);
+    if (!ledger) throw new Error('LEDGER_NOT_FOUND');
+    await db.run('DELETE FROM transactions WHERE ledgerId = ?', [ledgerId]);
+    await db.run('DELETE FROM ledgers WHERE ledgerId = ? AND userId = ?', [ledgerId, userId]);
+    await cacheManager.invalidateLedgerCache(userId);
     res.json({ ok: true });
   }));
 
@@ -841,6 +898,23 @@ async function startWebServer() {
     res.json({ ok: true });
   }));
 
+  // ── Daily transaction count in a date range ──────────────────────────────
+  app.get('/api/reports/daily-count', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { startDate, endDate } = parseDateRange(req);
+    const rows = await db.all<{ date: string; count: number }>(
+      `SELECT t.date, COUNT(*) as count
+       FROM transactions t
+       JOIN ledgers l ON t.ledgerId = l.ledgerId
+       WHERE l.userId = ? AND t.date >= ? AND t.date <= ?
+       GROUP BY t.date
+       ORDER BY t.date`,
+      [userId, startDate, endDate]
+    );
+    res.json(rows);
+  }));
+
   // ── Monthly trend (last N months across all active ledgers) ──────────────
   app.get('/api/reports/trend', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
@@ -959,9 +1033,11 @@ async function startWebServer() {
   app.get('/api/accounts', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
-    const accounts = await db.all<any>('SELECT * FROM accounts WHERE userId = ? ORDER BY createdAt ASC', [userId]);
-    const totalAssets = accounts.filter((a: any) => a.balance >= 0).reduce((s: number, a: any) => s + a.balance, 0);
-    const totalLiabilities = accounts.filter((a: any) => a.balance < 0).reduce((s: number, a: any) => s + Math.abs(a.balance), 0);
+    const accounts = await getAccountsWithComputedBalance(userId);
+    const totalAssets = accounts.filter((a: any) => (a.computedBalance ?? a.balance) >= 0)
+      .reduce((s: number, a: any) => s + (a.computedBalance ?? a.balance), 0);
+    const totalLiabilities = accounts.filter((a: any) => (a.computedBalance ?? a.balance) < 0)
+      .reduce((s: number, a: any) => s + Math.abs(a.computedBalance ?? a.balance), 0);
     res.json({ accounts, totalAssets, totalLiabilities, netWorth: totalAssets - totalLiabilities });
   }));
 
@@ -981,15 +1057,28 @@ async function startWebServer() {
   app.post('/api/accounts/transfer', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
-    const { fromId, toId, amount, note } = req.body;
+    const { fromLedgerId, toLedgerId, amount, note } = req.body;
     const transferAmount = Number(amount);
     if (Number.isNaN(transferAmount) || transferAmount <= 0) throw new Error('INVALID_AMOUNT');
+
+    // Resolve accounts via ledger's accountId
+    const [fromLedger, toLedger] = await Promise.all([
+      db.get<any>('SELECT * FROM ledgers WHERE ledgerId = ? AND userId = ?', [Number(fromLedgerId), userId]),
+      db.get<any>('SELECT * FROM ledgers WHERE ledgerId = ? AND userId = ?', [Number(toLedgerId), userId]),
+    ]);
+    if (!fromLedger) throw new Error('FROM_LEDGER_NOT_FOUND');
+    if (!toLedger)   throw new Error('TO_LEDGER_NOT_FOUND');
+    if (!fromLedger.accountId) throw new Error('FROM_LEDGER_NO_ACCOUNT');
+    if (!toLedger.accountId)   throw new Error('TO_LEDGER_NO_ACCOUNT');
+
     const [fromAcc, toAcc] = await Promise.all([
-      db.get<any>('SELECT * FROM accounts WHERE accountId = ? AND userId = ?', [Number(fromId), userId]),
-      db.get<any>('SELECT * FROM accounts WHERE accountId = ? AND userId = ?', [Number(toId), userId]),
+      db.get<any>('SELECT * FROM accounts WHERE accountId = ? AND userId = ?', [fromLedger.accountId, userId]),
+      db.get<any>('SELECT * FROM accounts WHERE accountId = ? AND userId = ?', [toLedger.accountId, userId]),
     ]);
     if (!fromAcc) throw new Error('FROM_ACCOUNT_NOT_FOUND');
-    if (!toAcc) throw new Error('TO_ACCOUNT_NOT_FOUND');
+    if (!toAcc)   throw new Error('TO_ACCOUNT_NOT_FOUND');
+    if (fromAcc.accountId === toAcc.accountId) throw new Error('SAME_ACCOUNT');
+
     await Promise.all([
       db.run('UPDATE accounts SET balance = balance - ?, updatedAt = CURRENT_TIMESTAMP WHERE accountId = ?', [transferAmount, fromAcc.accountId]),
       db.run('UPDATE accounts SET balance = balance + ?, updatedAt = CURRENT_TIMESTAMP WHERE accountId = ?', [transferAmount, toAcc.accountId]),

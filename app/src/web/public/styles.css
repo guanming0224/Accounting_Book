@@ -42,7 +42,8 @@ body {
   margin: 0;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 1fr;
+  grid-template-rows: 48px minmax(0, 1fr) 40px;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", Arial, sans-serif;
@@ -91,52 +92,180 @@ select {
   color: var(--text);
 }
 
+/* ── Top nav bar ───────────────────────────────────────────────────────────── */
 .sidebar {
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
-  padding: 20px 14px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  overflow: visible;
 }
 
 .brand {
-  display: grid;
-  gap: 5px;
-  padding: 4px 8px 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px 0 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.14);
+  margin-right: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.brand span {
+.cat-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+
+/* Category tab button (top level) */
+.cat-btn {
+  background: transparent;
   color: var(--sidebar-muted);
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-radius: 6px;
+  white-space: nowrap;
 }
+.cat-btn:hover { color: var(--sidebar-text); background: rgba(255,255,255,0.06); }
+.cat-btn.active { color: #fff; background: rgba(255,255,255,0.10); }
 
-nav {
-  display: grid;
-  gap: 8px;
+/* Dropdown panel */
+.cat-item { position: relative; }
+.cat-dropdown {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--sidebar-bg);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  padding: 6px;
+  min-width: 140px;
+  z-index: 200;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.70);
 }
+.cat-item:hover .cat-dropdown { display: flex; }
 
+/* Sub-page buttons inside dropdown */
 .nav-button {
+  white-space: nowrap;
   width: 100%;
   text-align: left;
+  padding: 7px 12px;
+  font-size: 13px;
   background: transparent;
   color: var(--sidebar-text);
+  border-radius: 5px;
+}
+.nav-button:hover { background: rgba(255,255,255,0.08); }
+.nav-button.active {
+  background: rgba(255,255,255,0.14);
+  color: #fff;
+  font-weight: 600;
 }
 
-.nav-button.active {
-  background: rgba(255, 255, 255, 0.07);
-  border-left: 3px solid var(--primary);
-  padding-left: 9px;
-  font-weight: 600;
-  color: #fff;
+.topnav-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
 }
-.nav-button:not(.active):hover {
-  background: rgba(255, 255, 255, 0.05);
-}
+
+/* nav-group-label no longer used in markup but kept for safety */
+.nav-group-label { display: none; }
 
 .content {
   min-width: 0;
   padding: 22px;
+  overflow-y: auto;
 }
+
+.bottombar {
+  background: var(--sidebar-bg);
+  border-top: 1px solid rgba(255,255,255,0.10);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  position: sticky;
+  bottom: 0;
+  z-index: 50;
+}
+
+.bottombar button#refresh-button {
+  padding: 5px 14px;
+  font-size: 13px;
+  background: transparent;
+  color: var(--sidebar-muted);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 6px;
+}
+.bottombar button#refresh-button:hover {
+  color: var(--sidebar-text);
+  background: rgba(255,255,255,0.08);
+}
+
+:root[data-theme="dark"] .bottombar {
+  background: var(--sidebar-bg);
+  border-top: 1px solid var(--border);
+}
+:root[data-theme="dark"] .bottombar button#refresh-button {
+  color: var(--sidebar-muted);
+  border-color: var(--border);
+}
+:root[data-theme="dark"] .bottombar button#refresh-button:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: rgba(0,255,255,0.06);
+}
+
+/* ── Page-level tabs (e.g. 交易 view) ──────────────────────────────────── */
+.page-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 2px solid var(--line);
+  margin-bottom: 18px;
+}
+
+.page-tab {
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 18px;
+  border-radius: 6px 6px 0 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+.page-tab:hover { color: var(--text); background: var(--surface-alt); }
+.page-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+  background: transparent;
+}
+
+.page-tabs-action { margin-left: auto; }
+
+.page-tab-panel { display: none; }
+.page-tab-panel.active { display: block; }
+
+:root[data-theme="dark"] .page-tabs { border-bottom-color: var(--border); }
+:root[data-theme="dark"] button.page-tab { color: var(--muted); background: transparent; font-weight: 500; }
+:root[data-theme="dark"] button.page-tab:hover { color: var(--text); background: var(--surface-alt); }
+:root[data-theme="dark"] button.page-tab.active { color: var(--primary); background: transparent; font-weight: 600; border-bottom-color: var(--primary); }
 
 .topbar {
   display: flex;
@@ -190,10 +319,73 @@ h2 {
   gap: 16px;
 }
 
+/* ── Dashboard top 3-column grid ─────────────────────────────────────────── */
+.dashboard-top-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Metric cards 4-col + hover tooltip ──────────────────────────────────── */
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+.metric.metric-tip {
+  position: relative;
+  overflow: visible;
+  cursor: default;
+}
+.metric-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+  padding: 12px 14px;
+  min-width: 180px;
+  pointer-events: none;
+}
+.metric.metric-tip:hover .metric-tooltip {
+  display: block;
+}
+.tip-title {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--text-sm);
+  padding: 3px 0;
+}
+.tip-name {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.tip-val {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .chart-grid {
@@ -306,6 +498,76 @@ h2 {
   background: var(--surface);
   border-radius: var(--radius);
   box-shadow: var(--shadow-1);
+}
+
+/* 總資產卡片背景趨勢圖 */
+.dashboard-assets-panel {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+.dashboard-assets-panel:hover {
+  box-shadow: var(--shadow-3);
+}
+.assets-trend-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.18;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: var(--radius);
+}
+.dashboard-assets-panel h2,
+.dashboard-assets-panel #dashboard-assets-donut {
+  position: relative;
+  z-index: 1;
+}
+:root[data-theme="dark"] .assets-trend-canvas { opacity: 0.22; }
+:root[data-theme="dark"] .net-amount-panel .assets-trend-canvas { opacity: 1; }
+.net-amount-panel .assets-trend-canvas { opacity: 1; }
+
+/* 當月淨額 背景柱狀圖 */
+.net-amount-panel {
+  position: relative;
+  overflow: hidden;
+}
+.net-amount-panel h2,
+.net-amount-panel #income-expense-chart {
+  position: relative;
+  z-index: 1;
+}
+
+/* 背景圖表卡片：強制白字 + 陰影，確保可讀性 */
+.net-amount-panel h2,
+.net-amount-panel .legend-item span,
+.net-amount-panel .legend-item strong,
+.net-amount-panel .donut-center span,
+.net-amount-panel .donut-center strong,
+.dashboard-assets-panel h2,
+.dashboard-assets-panel .legend-item span,
+.dashboard-assets-panel .legend-item strong,
+.dashboard-assets-panel .donut-center span,
+.expense-cat-panel h2,
+.expense-cat-panel .legend-item span,
+.expense-cat-panel .legend-item strong,
+.expense-cat-panel .donut-center span,
+.expense-cat-panel .donut-center strong {
+  color: #ffffff !important;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.90);
+}
+
+/* 當月支出分布 背景熱力圖 */
+.expense-cat-panel {
+  position: relative;
+  overflow: hidden;
+}
+.expense-cat-panel h2,
+.expense-cat-panel #expense-category-chart {
+  position: relative;
+  z-index: 1;
 }
 
 .metric {
@@ -457,23 +719,20 @@ tbody tr:hover td {
 
 @media (max-width: 860px) {
   body {
-    grid-template-columns: 1fr;
+    grid-template-rows: 48px minmax(0, 1fr) 40px;
   }
 
-  .sidebar {
-    position: sticky;
-    top: 0;
-    z-index: 2;
+  .cat-btn {
+    padding: 5px 10px;
+    font-size: 13px;
   }
 
-  nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .dashboard-top-grid {
+    grid-template-columns: 1fr 1fr;
   }
-
-  .nav-button {
-    text-align: center;
+  .dashboard-assets-panel {
+    grid-column: 1 / -1;
   }
-
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -572,6 +831,116 @@ tbody tr:hover td {
   gap: 10px;
   justify-content: flex-end;
   margin-top: 18px;
+}
+
+/* ── Date presets ────────────────────────────────────────────────────────── */
+.date-presets {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.date-presets button {
+  padding: 5px 10px;
+  font-size: var(--text-xs);
+  background: var(--surface-alt);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.date-presets button:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Unified height for all toolbar interactive elements */
+.toolbar input[type="date"],
+.toolbar select,
+.toolbar .date-presets button,
+.toolbar button[type="submit"] {
+  height: 36px;
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: var(--text-xs);
+}
+.toolbar .date-presets button {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.toolbar button[type="submit"] {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+/* ── Ledger stat row ─────────────────────────────────────────────────────── */
+.ledger-stat-row strong { font-weight: 600; }
+
+/* ── Ledger per-card donut grid ──────────────────────────────────────────── */
+.ledger-donut-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+}
+.ledger-donut-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ledger-donut-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-2);
+}
+/* Small donut variant */
+.donut.donut-sm {
+  width: 120px;
+  height: 120px;
+}
+.donut.donut-sm::after {
+  width: 70px;
+  height: 70px;
+}
+.ledger-donut-name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  text-align: center;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.ledger-donut-stats {
+  display: flex;
+  gap: 8px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.ledger-stat-in  { color: var(--success); }
+.ledger-stat-out { color: var(--danger); }
+.donut-center-label {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+.donut-center-value {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.3px;
 }
 
 /* ── Budget ──────────────────────────────────────────────────────────────── */
@@ -698,8 +1067,12 @@ tbody tr:hover td {
     flex-direction: column;
   }
 
-  .metrics {
+  .dashboard-top-grid {
     grid-template-columns: 1fr;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .bar-row {
@@ -722,40 +1095,191 @@ tbody tr:hover td {
   }
 }
 
-/* ── Dark mode ───────────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════
+   Dark mode = Cyberpunk Neon
+   ══════════════════════════════════════════════════════════════════════════ */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #111714;
-  --surface: #1c2622;
-  --surface-alt: #243029;
-  --surface-mid: #2d3b35;
-  --text: #e8f0ec;
-  --muted: #7fa39c;
-  --text-muted: #7fa39c;
-  --line: #2d3b35;
-  --border: #2d3b35;
-  --primary: #2dd4a0;
-  --primary-dark: #1fb88a;
-  --primary-light: rgba(45,212,160,0.12);
-  --accent: #fbbf24;
-  --accent-light: rgba(251,191,36,0.15);
-  --danger: #f87171;
-  --danger-light: rgba(248,113,113,0.12);
-  --success: #2dd4a0;
-  --success-light: rgba(45,212,160,0.12);
-  --sidebar-bg: #0c1512;
-  --sidebar-text: #c5ddd7;
-  --sidebar-muted: #5a8077;
-  --shadow-1: 0 1px 3px rgba(0,0,0,0.3);
-  --shadow-2: 0 4px 12px rgba(0,0,0,0.4);
-  --shadow-3: 0 8px 24px rgba(0,0,0,0.5);
-  --shadow-4: 0 16px 40px rgba(0,0,0,0.6);
+  /* ── 背景層：趨近純黑，帶藍紫底色 ── */
+  --bg:          #020205;
+  --surface:     #07070f;
+  --surface-alt: #0c0c1c;
+  --surface-mid: #121228;
+  /* ── 文字 ── */
+  --text:        #eaf2ff;
+  --muted:       #8aaedd;
+  --text-muted:  #8aaedd;
+  /* ── 邊框 ── */
+  --line:        #10102a;
+  --border:      #1c1c40;
+  /* ── 霓虹青主色 ── */
+  --primary:       #00ffff;
+  --primary-dark:  #00e5ff;
+  --primary-light: rgba(0,255,255,0.10);
+  /* ── 霓虹洋紅 accent ── */
+  --accent:        #ff00ff;
+  --accent-light:  rgba(255,0,255,0.10);
+  /* ── 霓虹危險 & 成功 ── */
+  --danger:        #ff003c;
+  --danger-light:  rgba(255,0,60,0.10);
+  --success:       #00ffaa;
+  --success-light: rgba(0,255,170,0.10);
+  /* ── 側邊欄 ── */
+  --sidebar-bg:    #010104;
+  --sidebar-text:  #ffffff;
+  --sidebar-muted: #c0cce0;
+  /* ── 霓虹輝光陰影 ── */
+  --shadow-1: 0 1px 3px rgba(0,0,0,1),   0 0 0 1px var(--border);
+  --shadow-2: 0 4px 14px rgba(0,0,0,0.95), 0 0 16px rgba(0,255,255,0.14);
+  --shadow-3: 0 8px 28px rgba(0,0,0,0.98), 0 0 28px rgba(0,255,255,0.20);
+  --shadow-4: 0 16px 48px rgba(0,0,0,1),   0 0 48px rgba(0,255,255,0.26);
 }
-:root[data-theme="dark"] .sidebar { background: var(--sidebar-bg); }
-:root[data-theme="dark"] button.secondary { background: var(--surface-alt); color: var(--text); border-color: var(--line); }
-:root[data-theme="dark"] input, :root[data-theme="dark"] select { background: var(--surface); color: var(--text); border-color: var(--line); }
+
+/* ── Cyberpunk: 基礎元件覆蓋 ────────────────────────────────────────────── */
+/* 普通按鈕（霓虹底色）：深色文字讓字看得清 */
+:root[data-theme="dark"] button { color: #020205; font-weight: 600; }
+/* 導覽按鈕例外：背景透明，文字要白色 */
+:root[data-theme="dark"] button.nav-button { color: var(--sidebar-text); font-weight: 400; background: transparent; }
+:root[data-theme="dark"] button.nav-button.active { color: var(--primary); font-weight: 600; }
+/* 類別按鈕例外 */
+:root[data-theme="dark"] button.cat-btn { color: var(--sidebar-muted); font-weight: 600; background: transparent; }
+:root[data-theme="dark"] button.cat-btn.active { color: var(--primary); background: rgba(0,255,255,0.08); }
+/* Icon 按鈕（深色切換等）：白色圖示 + 霓虹青邊框 */
+:root[data-theme="dark"] button.icon-btn { color: #ffffff; background: transparent; border-color: rgba(0,255,255,0.35); font-weight: 400; }
+:root[data-theme="dark"] button.icon-btn:hover { background: rgba(0,255,255,0.10); border-color: var(--primary); }
+/* 次要按鈕與淺底按鈕：白色文字 */
+:root[data-theme="dark"] button.secondary { background: var(--surface-alt); color: var(--text); border-color: var(--border); font-weight: 400; }
+:root[data-theme="dark"] button.danger { color: #020205; }
+/* 日期預設按鈕（今天/本週/本月等）：白色文字 */
+:root[data-theme="dark"] .date-presets button { color: var(--text); font-weight: 400; background: var(--surface-alt); border-color: var(--border); }
+:root[data-theme="dark"] .date-presets button:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+/* 月份導覽按鈕 */
+:root[data-theme="dark"] .month-nav button { color: var(--text); background: var(--surface-alt); border: 1px solid var(--border); font-weight: 400; }
+/* 小尺寸按鈕 */
+:root[data-theme="dark"] button.small { color: var(--text); background: var(--surface-alt); border: 1px solid var(--border); font-weight: 400; }
+:root[data-theme="dark"] .fab { color: #020205; font-weight: 700; box-shadow: 0 0 0 1px var(--primary), 0 0 20px rgba(0,255,255,0.45), var(--shadow-3); }
+:root[data-theme="dark"] .fab:hover { box-shadow: 0 0 0 1px var(--primary), 0 0 36px rgba(0,255,255,0.60), var(--shadow-3); }
+:root[data-theme="dark"] .type-btn.active { color: #020205; box-shadow: 0 0 10px rgba(0,255,255,0.35); }
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select {
+  background: var(--surface-alt);
+  color: var(--text);
+  border-color: var(--border);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+:root[data-theme="dark"] input:focus,
+:root[data-theme="dark"] select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(0,255,255,0.16);
+}
 :root[data-theme="dark"] table { background: var(--surface); }
-:root[data-theme="dark"] th { background: transparent; }
+:root[data-theme="dark"] th { background: var(--surface-alt); color: var(--primary); letter-spacing: 0.08em; }
+:root[data-theme="dark"] tbody tr:nth-child(even) { background: var(--surface-alt); }
+:root[data-theme="dark"] tbody tr:hover td { background: var(--surface-mid); }
+
+/* ── Cyberpunk: 卡片與面板 ──────────────────────────────────────────────── */
+:root[data-theme="dark"] .panel {
+  border: 1px solid var(--border);
+}
+:root[data-theme="dark"] .metric {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  box-shadow: var(--shadow-1), inset -4px 0 16px rgba(0,255,255,0.04);
+}
+:root[data-theme="dark"] .modal,
+:root[data-theme="dark"] .modal-box {
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-4), 0 0 60px rgba(0,255,255,0.10);
+}
+:root[data-theme="dark"] .auth-box {
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-4), 0 0 50px rgba(0,255,255,0.14);
+}
+/* ── Pocket cards: cyberpunk glow ── */
+:root[data-theme="dark"] .pocket-card {
+  border: 1px solid var(--pocket-color, var(--primary));
+  border-top: 4px solid var(--pocket-color, var(--primary));
+  box-shadow:
+    var(--shadow-2),
+    0 0 0 0px transparent,
+    0 2px 20px rgba(0,0,0,0.8),
+    0 0 18px rgba(0,255,255,0.12);
+}
+:root[data-theme="dark"] .pocket-card:hover {
+  box-shadow:
+    var(--shadow-3),
+    0 0 30px rgba(0,255,255,0.22);
+  transform: translateY(-3px);
+}
+:root[data-theme="dark"] .pocket-name { color: var(--pocket-color, var(--primary)); }
+:root[data-theme="dark"] .pocket-ledger-link {
+  background: rgba(0,255,255,0.08);
+  color: var(--primary);
+  border: 1px solid rgba(0,255,255,0.20);
+}
+:root[data-theme="dark"] .pocket-ledger-create {
+  background: var(--surface-alt);
+  color: var(--muted);
+  border: 1px dashed var(--border);
+}
+:root[data-theme="dark"] .pocket-ledger-create:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+:root[data-theme="dark"] .batch-bar { border-color: var(--border); box-shadow: 0 4px 20px rgba(0,0,0,0.9), 0 0 18px rgba(0,255,255,0.10); }
+
+/* ── Cyberpunk: 頂部導覽 ────────────────────────────────────────────────── */
+:root[data-theme="dark"] .sidebar {
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border);
+}
+:root[data-theme="dark"] .cat-btn { color: var(--sidebar-muted); }
+:root[data-theme="dark"] .cat-btn:hover { color: #ffffff; background: rgba(0,255,255,0.06); }
+:root[data-theme="dark"] .cat-btn.active { color: var(--primary); background: rgba(0,255,255,0.08); }
+:root[data-theme="dark"] .cat-dropdown {
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: var(--shadow-3), 0 0 24px rgba(0,255,255,0.10);
+}
+:root[data-theme="dark"] .nav-button { color: var(--sidebar-text); }
+:root[data-theme="dark"] .nav-button:hover { background: rgba(0,255,255,0.06); }
+:root[data-theme="dark"] .nav-button.active {
+  background: rgba(0,255,255,0.10);
+  color: var(--primary);
+  border-left: none;
+  border-bottom: none;
+  border-radius: 5px;
+}
+:root[data-theme="dark"] .nav-group-label { display: none; }
+
+/* ── Cyberpunk: 圖表與進度條 ────────────────────────────────────────────── */
+:root[data-theme="dark"] .bar-fill { background: var(--primary); box-shadow: 0 0 6px rgba(0,255,255,0.35); }
+:root[data-theme="dark"] .trend-bar.income  { background: var(--success); box-shadow: 0 0 5px rgba(0,255,170,0.45); }
+:root[data-theme="dark"] .trend-bar.expense { background: var(--danger);  box-shadow: 0 0 5px rgba(255,0,60,0.40); }
+:root[data-theme="dark"] .budget-progress-fill { background: linear-gradient(90deg, var(--primary), var(--primary-dark)); box-shadow: 0 0 8px rgba(0,255,255,0.35); }
+:root[data-theme="dark"] .budget-progress-fill.over { background: linear-gradient(90deg, var(--danger), #ff0040); box-shadow: 0 0 8px rgba(255,0,60,0.40); }
+:root[data-theme="dark"] .goal-progress-fill { background: var(--success); box-shadow: 0 0 6px rgba(0,255,170,0.40); }
+:root[data-theme="dark"] .goal-progress-fill.done { background: var(--primary); box-shadow: 0 0 6px rgba(0,255,255,0.40); }
+
+/* ── Cyberpunk: 細節元件 ────────────────────────────────────────────────── */
+:root[data-theme="dark"] .search-box { border: 1px solid var(--primary); box-shadow: 0 0 24px rgba(0,255,255,0.20); }
+:root[data-theme="dark"] .search-results { border: 1px solid var(--border); border-top: none; }
+:root[data-theme="dark"] .ledger-donut-card:hover { border-color: var(--primary); box-shadow: var(--shadow-2), 0 0 20px rgba(0,255,255,0.22); }
+:root[data-theme="dark"] .date-presets button:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); box-shadow: 0 0 8px rgba(0,255,255,0.20); }
+:root[data-theme="dark"] .pocket-btn-deposit  { background: var(--primary-light); color: var(--primary); border: 1px solid rgba(0,255,255,0.20); }
+:root[data-theme="dark"] .pocket-btn-withdraw { background: var(--danger-light);  color: var(--danger);  border: 1px solid rgba(255,0,60,0.20); }
+:root[data-theme="dark"] .rate-currency { text-shadow: 0 0 8px rgba(0,255,255,0.45); }
+:root[data-theme="dark"] .budget-warning-toast { background: var(--accent-light); border-color: var(--accent); color: var(--accent); box-shadow: var(--shadow-2), 0 0 28px rgba(255,0,255,0.30); }
+:root[data-theme="dark"] .cal-cell.cal-today { background: var(--primary-light); }
+:root[data-theme="dark"] .cal-cell.cal-today .cal-day-num { color: var(--primary); text-shadow: 0 0 8px rgba(0,255,255,0.50); }
+:root[data-theme="dark"] .status { border-color: rgba(0,255,170,0.30); }
+:root[data-theme="dark"] .status.error { border-color: rgba(255,0,60,0.30); }
+:root[data-theme="dark"] .insight-info { border-left-color: var(--primary); background: var(--primary-light); }
+:root[data-theme="dark"] .meter-type-badge { color: #020205; font-weight: 700; }
+:root[data-theme="dark"] .meter-type-badge { color: #020205; }
+:root[data-theme="dark"] button.secondary:hover { border-color: var(--primary); color: var(--primary); }
 
 /* ── Icon button (dark mode toggle) ─────────────────────────────────────── */
 .icon-btn {
@@ -781,7 +1305,192 @@ tbody tr:hover td {
 .alert-row { background: var(--accent-light); border-color: var(--accent); }
 :root[data-theme="dark"] .alert-row { background: var(--accent-light); border-color: var(--accent); }
 
-/* ── Account type badge ──────────────────────────────────────────────────── */
+/* ── Pocket overview header ──────────────────────────────────────────────── */
+.pocket-overview {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.pocket-overview-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+.pocket-overview-total {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+  color: var(--text);
+}
+.pocket-overview-sub {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: 4px;
+  display: flex;
+  gap: 10px;
+}
+.pocket-overview-sub strong { font-variant-numeric: tabular-nums; }
+
+/* ── Pocket card grid ────────────────────────────────────────────────────── */
+.pocket-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.pocket-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--muted);
+  padding: 40px 0;
+  font-size: var(--text-sm);
+}
+.pocket-card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border-top: 4px solid var(--pocket-color, var(--primary));
+  box-shadow: var(--shadow-2);
+  padding: 18px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.pocket-card:hover {
+  box-shadow: var(--shadow-3);
+  transform: translateY(-2px);
+}
+.pocket-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.pocket-name {
+  font-weight: 600;
+  font-size: var(--text-base);
+  color: var(--text);
+  word-break: break-word;
+}
+.pocket-card-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.pocket-card:hover .pocket-card-actions { opacity: 1; }
+.icon-btn {
+  background: none;
+  border: none;
+  padding: 2px 5px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+}
+.icon-btn:hover { background: var(--surface-alt); color: var(--text); }
+.danger-icon:hover { color: var(--danger) !important; }
+
+.pocket-balance {
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+  line-height: 1;
+}
+.pocket-balance-breakdown {
+  display: flex;
+  gap: 10px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: 3px;
+}
+.pocket-card-btns {
+  display: flex;
+  gap: 8px;
+}
+.pocket-btn-deposit,
+.pocket-btn-withdraw {
+  flex: 1;
+  padding: 7px 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.pocket-btn-deposit  { background: var(--primary-light); color: var(--primary); }
+.pocket-btn-withdraw { background: var(--danger-light);  color: var(--danger);  }
+.pocket-btn-deposit:hover  { opacity: 0.8; }
+.pocket-btn-withdraw:hover { opacity: 0.8; }
+
+.pocket-amount-row {
+  padding: 2px 0;
+}
+.pocket-amount-input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1.5px solid var(--primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+/* ── Pocket ledger row ───────────────────────────────────────────────────── */
+.pocket-ledger-row {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.pocket-ledger-create,
+.pocket-ledger-link {
+  width: 100%;
+  padding: 6px 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  text-align: center;
+}
+.pocket-ledger-create {
+  background: var(--surface-alt);
+  color: var(--muted);
+  border: 1px dashed var(--line);
+}
+.pocket-ledger-create:hover { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+.pocket-ledger-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.pocket-ledger-link {
+  flex: 1;
+  background: var(--primary-light);
+  color: var(--primary);
+  text-align: left;
+}
+.pocket-ledger-link:hover { opacity: 0.8; }
+.pocket-ledger-del {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.pocket-ledger-item:hover .pocket-ledger-del { opacity: 1; }
+
+/* ── Account type badge (kept for fallback) ──────────────────────────────── */
 .account-badge {
   display: inline-block;
   font-size: 11px;
@@ -908,6 +1617,7 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .toggle-row { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 6px 0; }
 .toggle-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
 
+
 /* ── Checkbox column in tx table ─────────────────────────────────────────── */
 .tx-row-checkbox { cursor: pointer; width: 14px; height: 14px; }
 
@@ -979,7 +1689,6 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .meta-card-icon { font-size: 28px; line-height: 1; }
 .meta-card-value { font-size: 20px; font-weight: 700; color: var(--text); }
 .meta-card-label { font-size: 11px; color: var(--text-muted, var(--muted)); margin-top: 2px; text-transform: uppercase; }
-.meta-card.streak-hot { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(217,119,6,0.2); }
 
 /* Net worth badge */
 .badge-value { font-size: 15px; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
@@ -1136,7 +1845,6 @@ button.small { padding: 4px 10px; font-size: 12px; }
   max-width: 380px;
   animation: slideUp 0.25s ease;
 }
-[data-theme="dark"] .budget-warning-toast { background: var(--accent-light); border-color: var(--accent); color: var(--accent); }
 .budget-warning-icon { font-size: 22px; flex-shrink: 0; }
 .budget-warning-title { font-weight: 700; font-size: 14px; }
 .budget-warning-sub { font-size: 12px; margin-top: 2px; }
@@ -1161,3 +1869,86 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .lightbox-box { position: relative; max-width: 90vw; max-height: 90vh; }
 .lightbox-img { max-width: 100%; max-height: 90vh; border-radius: 8px; object-fit: contain; display: block; }
 .lightbox-close { position: absolute; top: -16px; right: -16px; background: var(--surface); color: var(--text); border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 16px; padding: 0; }
+
+/* ── Clickable chart legend items ────────────────────────────────────────── */
+.chart-legend-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 3px 6px;
+  margin: -3px -6px;
+  transition: background 0.12s;
+}
+.chart-legend-clickable:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.chart-legend-clickable:hover strong { color: var(--primary); }
+
+/* ── Ledger cards ────────────────────────────────────────────────────────── */
+.ledger-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.ledger-card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--ledger-color, var(--primary));
+  box-shadow: var(--shadow-2);
+  padding: 18px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.ledger-card:hover {
+  box-shadow: var(--shadow-3);
+  transform: translateY(-2px);
+}
+.ledger-card-top { display: flex; align-items: center; justify-content: space-between; }
+.ledger-card-name {
+  font-weight: 700;
+  font-size: var(--text-md);
+  color: var(--text);
+  word-break: break-word;
+}
+.ledger-card-stats {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: 1.7;
+}
+.ledger-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  flex-wrap: wrap;
+}
+.ledger-card > button[data-ledger-view] {
+  margin-top: auto;
+}
+.ledger-card-archived {
+  opacity: 0.6;
+  border-top-color: var(--muted);
+}
+/* icon buttons inside ledger cards follow same hover-reveal as pocket cards */
+.ledger-card:hover .pocket-card-actions { opacity: 1; }
+.ledger-card-archived .pocket-card-actions { opacity: 0.5; }
+.ledger-card-archived:hover .pocket-card-actions { opacity: 1; }
+/* hint text next to section title */
+.ledger-hint {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+/* Dark mode: neon top-border glow */
+:root[data-theme="dark"] .ledger-card {
+  border-color: var(--border);
+  box-shadow: var(--shadow-2), 0 -2px 12px rgba(0,255,255,0.06);
+}
+:root[data-theme="dark"] .ledger-card:hover {
+  box-shadow: var(--shadow-3), 0 -2px 20px rgba(0,255,255,0.12);
+}
+:root[data-theme="dark"] .ledger-card-actions button { font-weight: 600; }
+:root[data-theme="dark"] .ledger-card-actions button.secondary { color: var(--text); }
+:root[data-theme="dark"] .ledger-card-actions button.danger { color: #020205; }
+
