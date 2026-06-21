@@ -784,13 +784,27 @@ function renderAssetsTrendModalChart() {
           callbacks: { label: ctx => `NT$${Math.round(ctx.raw).toLocaleString()}` }
         }
       },
+      layout: { padding: { left: 8, right: 8, top: 8, bottom: 4 } },
       scales: {
-        x: { ticks: { color: textColor, maxTicksLimit: 8, font: { size: 11 } },
-             grid:  { color: gridColor } },
-        y: { min: 0,
-             ticks: { color: textColor, font: { size: 11 },
-               callback: v => `NT$${(v/1000).toFixed(0)}k` },
-             grid: { color: gridColor } }
+        x: {
+          ticks: { color: textColor, maxTicksLimit: 10, font: { size: 12 }, padding: 8 },
+          grid:  { color: gridColor }
+        },
+        y: {
+          min: 0,
+          ticks: {
+            color: textColor,
+            font: { size: 12 },
+            padding: 10,
+            maxTicksLimit: 8,
+            callback: v => {
+              if (v >= 10000) return `NT$${(v / 10000).toFixed(1)}萬`;
+              if (v >= 1000)  return `NT$${(v / 1000).toFixed(1)}k`;
+              return `NT$${v}`;
+            }
+          },
+          grid: { color: gridColor }
+        }
       }
     }
   });
