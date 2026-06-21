@@ -614,34 +614,74 @@ async function loadNetAmountTrendBg(totalIncome, balance) {
   frame();
 }
 
-// ── 當月支出分布 背景：類別熱力方格 ───────────────────────────────────────
+// ── 當月支出分布 背景：Treemap 熱力圖（面積正比支出金額）─────────────────
 function renderExpenseCategoryHeatmapBg(categories) {
   const canvas = document.getElementById('expense-cat-heatmap-bg');
   if (!canvas || !categories.length) return;
   const dpr = window.devicePixelRatio || 1;
-  const W = canvas.offsetWidth || canvas.parentElement.offsetWidth || 200;
-  const H = canvas.offsetHeight || canvas.parentElement.offsetHeight || 160;
+  const W = canvas.offsetWidth || canvas.parentElement?.offsetWidth || 200;
+  const H = canvas.offsetHeight || canvas.parentElement?.offsetHeight || 160;
   canvas.width = W * dpr;
   canvas.height = H * dpr;
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
+
   const total = categories.reduce((s, c) => s + c.total, 0);
   if (!total) return;
-  const n = categories.length;
-  const cols = Math.ceil(Math.sqrt(n * 1.6));
-  const rows = Math.ceil(n / cols);
-  const cw = W / cols, ch = H / rows, gap = 4;
-  categories.forEach((cat, i) => {
-    const intensity = cat.total / total;
-    const alpha = 0.10 + intensity * 0.60;
-    const color = chartColors[i % chartColors.length];
-    ctx.fillStyle = hexToRgba(color, alpha);
-    const x = (i % cols) * cw, ry = Math.floor(i / cols) * ch;
-    ctx.beginPath();
-    ctx.roundRect(x + gap, ry + gap, cw - gap * 2, ch - gap * 2, 4);
-    ctx.fill();
-  });
+
+  // Sort desc, keep original index for colour assignment
+  const sorted = [...categories]
+    .map((c, i) => ({ ...c, _idx: i }))
+    .sort((a, b) => b.total - a.total);
+
+  const GAP = 4;
+
+  // Binary-split treemap: split rectangle proportionally, alternate axis by aspect ratio
+  function drawNode(items, x, y, w, h, groupTotal) {
+    if (!items.length || w < 2 || h < 2) return;
+
+    if (items.length === 1) {
+      const cat = items[0];
+      const color = chartColors[cat._idx % chartColors.length];
+      const intensity = cat.total / total;
+      const alpha = 0.12 + intensity * 0.65;
+      ctx.fillStyle = hexToRgba(color, alpha);
+      ctx.beginPath();
+      ctx.roundRect(x + GAP, y + GAP, Math.max(1, w - GAP * 2), Math.max(1, h - GAP * 2), 5);
+      ctx.fill();
+      return;
+    }
+
+    // Find split point: balance two groups so their totals are as equal as possible
+    let accumulated = 0;
+    let splitAt = 1;
+    const half = groupTotal / 2;
+    for (let i = 0; i < items.length - 1; i++) {
+      accumulated += items[i].total;
+      splitAt = i + 1;
+      if (accumulated >= half) break;
+    }
+
+    const groupA = items.slice(0, splitAt);
+    const groupB = items.slice(splitAt);
+    const totalA = groupA.reduce((s, c) => s + c.total, 0);
+    const ratioA = totalA / groupTotal;
+
+    if (w >= h) {
+      // Split horizontally
+      const wA = w * ratioA;
+      drawNode(groupA, x,      y, wA,     h, totalA);
+      drawNode(groupB, x + wA, y, w - wA, h, groupTotal - totalA);
+    } else {
+      // Split vertically
+      const hA = h * ratioA;
+      drawNode(groupA, x, y,      w, hA,     totalA);
+      drawNode(groupB, x, y + hA, w, h - hA, groupTotal - totalA);
+    }
+  }
+
+  drawNode(sorted, 0, 0, W, H, total);
 }
 
 async function loadNetWorthChart() {
