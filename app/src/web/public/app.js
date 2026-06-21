@@ -516,56 +516,102 @@ async function loadAssetsTrendBg() {
   });
 }
 
-// ── 當月淨額 背景：每日進帳柱狀 + 剩餘資產水平基準線 ─────────────────────
-let _netAmountBgChart = null;
+// ── 當月淨額 背景：水波浪動畫（水位 = 剩餘資產 / 進帳總額）─────────────────
+let _waveAnimFrame = null;
+
+function stopWaveAnimation() {
+  if (_waveAnimFrame) { cancelAnimationFrame(_waveAnimFrame); _waveAnimFrame = null; }
+}
+
 async function loadNetAmountTrendBg(totalIncome, balance) {
+  stopWaveAnimation();
   const canvas = document.getElementById('net-amount-trend-bg');
   if (!canvas) return;
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const start = `${y}-${m}-01`;
-  const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
-  const end = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
-  const rows = await apiFetch(`/api/transactions/search?type=income&start=${start}&end=${end}`)
-    .then(r => r.json()).catch(() => []);
 
-  // Aggregate by date
-  const byDay = {};
-  for (const tx of rows) {
-    const d = tx.date || '';
-    if (d) byDay[d] = (byDay[d] || 0) + (tx.amount || 0);
-  }
-  const labels = [], data = [];
-  for (let d = 1; d <= lastDay; d++) {
-    const key = `${y}-${m}-${String(d).padStart(2, '0')}`;
-    labels.push(String(d));
-    data.push(byDay[key] || 0);
-  }
-  const yMax = totalIncome > 0 ? totalIncome : (Math.max(...data) || 1);
-  const floorVal = balance;
-  const isDark = document.documentElement.dataset.theme === 'dark';
-  const barCol = isDark ? 'rgba(0,255,255,0.80)' : 'rgba(26,127,100,0.45)';
-  const lineCol = isDark ? 'rgba(255,0,255,1.00)' : 'rgba(217,119,6,0.75)';
+  // Water level ratio: clamp between 5% and 95%
+  const ratio = totalIncome > 0
+    ? Math.max(0.05, Math.min(0.95, balance / totalIncome))
+    : 0.5;
 
-  if (_netAmountBgChart) { _netAmountBgChart.destroy(); _netAmountBgChart = null; }
-  _netAmountBgChart = new Chart(canvas, {
-    data: {
-      labels,
-      datasets: [
-        { type: 'line', data: labels.map(() => floorVal), borderColor: lineCol,
-          borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false, order: 1 },
-        { type: 'bar', data, backgroundColor: barCol, borderRadius: 2,
-          borderSkipped: 'bottom', order: 2 },
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: { x: { display: false }, y: { display: false, min: 0, max: yMax } },
-      layout: { padding: 0 },
+  const dpr = window.devicePixelRatio || 1;
+  function resize() {
+    const W = canvas.parentElement?.offsetWidth || 200;
+    const H = canvas.parentElement?.offsetHeight || 160;
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+  }
+  resize();
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  let phase1 = 0, phase2 = Math.PI * 0.6;
+
+  function frame() {
+    const W = canvas.width / dpr;
+    const H = canvas.height / dpr;
+    ctx.clearRect(0, 0, W, H);
+
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const waterY = H * (1 - ratio);   // Y position of surface (from top)
+    const amp1 = H * 0.028, amp2 = H * 0.018;
+    const wl1 = W * 0.55, wl2 = W * 0.38;
+
+    // ── 底層水體填色 ──────────────────────────────────────────
+    const bodyGrad = ctx.createLinearGradient(0, waterY, 0, H);
+    if (isDark) {
+      bodyGrad.addColorStop(0, 'rgba(0,255,255,0.18)');
+      bodyGrad.addColorStop(1, 'rgba(0,100,180,0.38)');
+    } else {
+      bodyGrad.addColorStop(0, 'rgba(26,127,100,0.14)');
+      bodyGrad.addColorStop(1, 'rgba(26,127,100,0.30)');
     }
-  });
+    ctx.fillStyle = bodyGrad;
+    ctx.fillRect(0, waterY, W, H - waterY);
+
+    // ── 波浪 2（後層，較柔） ───────────────────────────────────
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x++) {
+      const y = waterY + amp2 * Math.sin((x / wl2) * Math.PI * 2 + phase2)
+                       + amp2 * 0.5 * Math.cos((x / wl1) * Math.PI * 2 - phase1 * 0.5);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fillStyle = isDark ? 'rgba(0,200,255,0.28)' : 'rgba(26,127,100,0.22)';
+    ctx.fill();
+
+    // ── 波浪 1（前層，較銳） ───────────────────────────────────
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x++) {
+      const y = waterY + amp1 * Math.sin((x / wl1) * Math.PI * 2 + phase1)
+                       + amp1 * 0.4 * Math.sin((x / wl2) * Math.PI * 2 + phase2 * 1.3);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fillStyle = isDark ? 'rgba(0,255,255,0.42)' : 'rgba(26,127,100,0.34)';
+    ctx.fill();
+
+    // ── 水面光澤線 ────────────────────────────────────────────
+    ctx.beginPath();
+    for (let x = 0; x <= W; x++) {
+      const y = waterY + amp1 * Math.sin((x / wl1) * Math.PI * 2 + phase1)
+                       + amp1 * 0.4 * Math.sin((x / wl2) * Math.PI * 2 + phase2 * 1.3);
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = isDark ? 'rgba(0,255,255,0.90)' : 'rgba(26,127,100,0.70)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    phase1 += 0.022;
+    phase2 += 0.015;
+    _waveAnimFrame = requestAnimationFrame(frame);
+  }
+
+  frame();
 }
 
 // ── 當月支出分布 背景：類別熱力方格 ───────────────────────────────────────
@@ -2729,6 +2775,8 @@ const _viewCatMap = {
 };
 
 function setView(view) {
+  // Stop wave animation when leaving dashboard
+  if (state.currentView === 'dashboard' && view !== 'dashboard') stopWaveAnimation();
   state.currentView = view;
   document.querySelectorAll('.nav-button').forEach((button) => {
     button.classList.toggle('active', button.dataset.view === view);

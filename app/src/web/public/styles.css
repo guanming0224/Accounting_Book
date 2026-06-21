@@ -521,7 +521,8 @@ h2 {
   z-index: 1;
 }
 :root[data-theme="dark"] .assets-trend-canvas { opacity: 0.22; }
-:root[data-theme="dark"] .net-amount-panel .assets-trend-canvas { opacity: 0.65; }
+:root[data-theme="dark"] .net-amount-panel .assets-trend-canvas { opacity: 1; }
+.net-amount-panel .assets-trend-canvas { opacity: 1; }
 
 /* 當月淨額 背景柱狀圖 */
 .net-amount-panel {
