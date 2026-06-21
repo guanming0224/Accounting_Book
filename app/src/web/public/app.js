@@ -329,10 +329,8 @@ async function loadDashboard() {
   populateMetricTooltips(ledgerStats);
   setupDailyCountTooltip();
   loadInsights();
-  apiFetch('/api/reports/trend?months=6').then(r => r.json()).then(renderDashboardSparkline).catch(() => {});
   loadStreak().catch(() => {});
   loadForecast().catch(() => {});
-  loadNetWorthChart().catch(() => {});
 }
 
 // 總資產 donut: same layout as 進帳-支出淨額 and 支出類別分布
@@ -2618,6 +2616,7 @@ function setView(view) {
     goals: '儲蓄目標',
     recurring: '定期交易',
     reminders: '帳單提醒',
+    'finance-trends': '財務動態',
     reports: '趨勢報表',
     splits: '分帳',
     utility: '水電用量追蹤',
@@ -2636,6 +2635,12 @@ function setView(view) {
   }
   if (view === 'utility') loadUtility();
   if (view === 'calendar') loadCalendar();
+  if (view === 'finance-trends') loadFinanceTrends();
+}
+
+function loadFinanceTrends() {
+  apiFetch('/api/reports/trend?months=6').then(r => r.json()).then(renderDashboardSparkline).catch(() => {});
+  loadNetWorthChart().catch(() => {});
 }
 
 async function refreshCurrentView() {
@@ -2653,6 +2658,7 @@ async function refreshCurrentView() {
   if (state.currentView === 'splits') await loadSplits();
   if (state.currentView === 'utility') await loadUtility();
   if (state.currentView === 'calendar') await loadCalendar();
+  if (state.currentView === 'finance-trends') loadFinanceTrends();
 }
 
 // ── Merchant memory ───────────────────────────────────────────────────────
