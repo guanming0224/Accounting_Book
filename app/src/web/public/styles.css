@@ -504,6 +504,11 @@ h2 {
 .dashboard-assets-panel {
   position: relative;
   overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+.dashboard-assets-panel:hover {
+  box-shadow: var(--shadow-3);
 }
 .assets-trend-canvas {
   position: absolute;

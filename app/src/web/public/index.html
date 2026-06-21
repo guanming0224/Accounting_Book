@@ -768,6 +768,32 @@
       <button id="refresh-button" class="secondary">↺ 重新整理</button>
     </footer>
 
+    <!-- ── 總資產趨勢 Modal ───────────────────────────────────────────────────── -->
+    <div id="assets-trend-modal-overlay" class="modal-overlay" hidden>
+      <div class="modal" style="max-width:680px;width:92vw" role="dialog" aria-modal="true">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <h2 style="margin:0">總資產趨勢</h2>
+          <button id="assets-trend-modal-close" class="icon-btn">✕</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+          <div class="page-tabs" id="assets-trend-tabs" style="margin-bottom:0;border-bottom:none;gap:4px">
+            <button class="page-tab active" data-assets-range="30d">30 天</button>
+            <button class="page-tab" data-assets-range="month">月</button>
+            <button class="page-tab" data-assets-range="year">年</button>
+          </div>
+          <div style="display:flex;gap:4px;margin-left:auto">
+            <button class="small active" id="assets-style-curve" data-assets-style="curve">曲線</button>
+            <button class="small" id="assets-style-line" data-assets-style="line">折線</button>
+            <button class="small" id="assets-style-bar" data-assets-style="bar">直方</button>
+          </div>
+        </div>
+        <div style="position:relative;height:260px">
+          <canvas id="assets-trend-modal-chart"></canvas>
+        </div>
+        <div id="assets-trend-modal-summary" style="margin-top:12px;font-size:13px;color:var(--muted);display:flex;gap:24px"></div>
+      </div>
+    </div>
+
     <!-- ── 新增交易 Modal ────────────────────────────────────────────────────── -->
     <div id="tx-modal-overlay" class="modal-overlay" hidden>
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">

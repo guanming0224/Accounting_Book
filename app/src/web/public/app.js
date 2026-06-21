@@ -684,6 +684,108 @@ function renderExpenseCategoryHeatmapBg(categories) {
   drawNode(sorted, 0, 0, W, H, total);
 }
 
+// ── 總資產趨勢彈窗 ───────────────────────────────────────────────────────────
+let _assetsTrendModalChart = null;
+let _assetsTrendHistory    = null;   // cached after first fetch
+let _assetsTrendRange      = '30d';
+let _assetsTrendStyle      = 'curve';
+
+async function openAssetsTrendModal() {
+  const overlay = document.getElementById('assets-trend-modal-overlay');
+  if (!overlay) return;
+  overlay.hidden = false;
+
+  // Fetch & cache history
+  if (!_assetsTrendHistory) {
+    const resp = await apiFetch('/api/net-worth/history');
+    _assetsTrendHistory = await resp.json();
+  }
+  renderAssetsTrendModalChart();
+}
+
+function groupAssetsByRange(history, range) {
+  if (range === '30d') return history.slice(-30);
+
+  const map = new Map();
+  for (const h of history) {
+    const key = range === 'month'
+      ? h.recordedDate.slice(0, 7)    // YYYY-MM
+      : h.recordedDate.slice(0, 4);   // YYYY
+    map.set(key, h.netWorth);         // keep last snapshot in period
+  }
+  return Array.from(map.entries()).map(([k, v]) => ({ recordedDate: k, netWorth: v }));
+}
+
+function renderAssetsTrendModalChart() {
+  const history = _assetsTrendHistory;
+  if (!history || !history.length) return;
+
+  const pts    = groupAssetsByRange(history, _assetsTrendRange);
+  const labels = pts.map(p => p.recordedDate);
+  const data   = pts.map(p => p.netWorth);
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  const { textColor, gridColor } = chartDefaults();
+  const primary = isDark ? '#00ffff' : '#1a7f64';
+
+  // Summary row
+  const first = data[0] ?? 0, last = data[data.length - 1] ?? 0;
+  const diff  = last - first;
+  const sign  = diff >= 0 ? '+' : '';
+  const summaryEl = document.getElementById('assets-trend-modal-summary');
+  if (summaryEl) {
+    summaryEl.innerHTML = `
+      <span>最新：<strong>NT$${Math.round(last).toLocaleString()}</strong></span>
+      <span>區間變化：<strong style="color:${diff>=0?'var(--success)':'var(--danger)'}">${sign}NT$${Math.round(diff).toLocaleString()}</strong></span>
+    `;
+  }
+
+  if (_assetsTrendModalChart) { _assetsTrendModalChart.destroy(); _assetsTrendModalChart = null; }
+
+  const canvas = document.getElementById('assets-trend-modal-chart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, 0, 0, 260);
+  grad.addColorStop(0, isDark ? 'rgba(0,255,255,0.25)' : 'rgba(26,127,100,0.20)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+
+  const isBar   = _assetsTrendStyle === 'bar';
+  const tension = _assetsTrendStyle === 'curve' ? 0.42 : 0;
+
+  const dataset = isBar
+    ? { type: 'bar', data, backgroundColor: isDark ? 'rgba(0,255,255,0.55)' : 'rgba(26,127,100,0.50)', borderRadius: 4 }
+    : { type: 'line', data, borderColor: primary, backgroundColor: grad,
+        borderWidth: 2, tension, fill: true, pointRadius: pts.length > 60 ? 0 : 3,
+        pointBackgroundColor: primary };
+
+  _assetsTrendModalChart = new Chart(canvas, {
+    type: isBar ? 'bar' : 'line',
+    data: { labels, datasets: [dataset] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
+      plugins: { legend: { display: false },
+        tooltip: {
+          callbacks: { label: ctx => `NT$${Math.round(ctx.raw).toLocaleString()}` }
+        }
+      },
+      scales: {
+        x: { ticks: { color: textColor, maxTicksLimit: 8, font: { size: 11 } },
+             grid:  { color: gridColor } },
+        y: { ticks: { color: textColor, font: { size: 11 },
+               callback: v => `NT$${(v/1000).toFixed(0)}k` },
+             grid: { color: gridColor } }
+      }
+    }
+  });
+}
+
+function closeAssetsTrendModal() {
+  const overlay = document.getElementById('assets-trend-modal-overlay');
+  if (overlay) overlay.hidden = true;
+  if (_assetsTrendModalChart) { _assetsTrendModalChart.destroy(); _assetsTrendModalChart = null; }
+}
+
 async function loadNetWorthChart() {
   try {
     const resp = await apiFetch('/api/net-worth/history');
@@ -2964,6 +3066,36 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  // 總資產卡片 → 開啟趨勢彈窗
+  if (target.closest('.dashboard-assets-panel') && !target.closest('button')) {
+    openAssetsTrendModal();
+    return;
+  }
+
+  // 總資產彈窗：關閉
+  if (target.id === 'assets-trend-modal-close' || target.id === 'assets-trend-modal-overlay') {
+    closeAssetsTrendModal();
+    return;
+  }
+
+  // 總資產彈窗：時間範圍 tab
+  const rangeTab = target.closest('[data-assets-range]');
+  if (rangeTab) {
+    _assetsTrendRange = rangeTab.dataset.assetsRange;
+    document.querySelectorAll('[data-assets-range]').forEach(b => b.classList.toggle('active', b === rangeTab));
+    renderAssetsTrendModalChart();
+    return;
+  }
+
+  // 總資產彈窗：圖表樣式切換
+  const styleBtn = target.closest('[data-assets-style]');
+  if (styleBtn) {
+    _assetsTrendStyle = styleBtn.dataset.assetsStyle;
+    document.querySelectorAll('[data-assets-style]').forEach(b => b.classList.toggle('active', b === styleBtn));
+    renderAssetsTrendModalChart();
+    return;
+  }
+
   // Page-level tabs (e.g. 交易查詢 / 進階搜尋)
   const pageTab = target.closest('.page-tab');
   if (pageTab) {
@@ -3785,7 +3917,10 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     _searchTimer = setTimeout(() => runSearch(e.target.value), 280);
   });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeSearch();
+    if (e.key === 'Escape') {
+      closeSearch();
+      closeAssetsTrendModal();
+    }
     if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); openSearch(); }
   });
 
