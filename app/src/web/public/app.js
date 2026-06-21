@@ -868,6 +868,28 @@ function closeAssetsTrendModal() {
   if (_assetsTrendModalChart) { _assetsTrendModalChart.destroy(); _assetsTrendModalChart = null; }
 }
 
+// ── 帳本刪除確認 modal（Discord 風格）─────────────────────────────────────
+let _pendingDeleteLedgerId = null;
+
+function openLedgerDeleteModal(ledgerId, name) {
+  _pendingDeleteLedgerId = ledgerId;
+  document.getElementById('ledger-delete-name-display').textContent = name;
+  const input   = document.getElementById('ledger-delete-confirm-input');
+  const confirm = document.getElementById('ledger-delete-confirm');
+  input.value   = '';
+  confirm.disabled = true;
+  input.oninput = () => {
+    confirm.disabled = input.value.trim() !== name;
+  };
+  document.getElementById('ledger-delete-overlay').hidden = false;
+  input.focus();
+}
+
+function closeLedgerDeleteModal() {
+  document.getElementById('ledger-delete-overlay').hidden = true;
+  _pendingDeleteLedgerId = null;
+}
+
 async function loadNetWorthChart() {
   try {
     const resp = await apiFetch('/api/net-worth/history');
@@ -1216,6 +1238,7 @@ function renderActiveLedger(ledger, index) {
         <div class="pocket-card-actions">
           <button class="icon-btn" data-ledger-rename="${ledger.ledgerId}" title="改名">✏</button>
           <button class="icon-btn danger-icon" data-ledger-archive="${ledger.ledgerId}" title="封存">📦</button>
+          <button class="icon-btn danger-icon" data-ledger-delete="${ledger.ledgerId}" data-ledger-name="${escapeAttr(ledger.name)}" title="刪除">🗑</button>
         </div>
       </div>
       <div class="ledger-card-stats ledger-stat-row" id="ledger-stats-${ledger.ledgerId}">載入中…</div>
@@ -3161,6 +3184,24 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  // 帳本刪除確認 modal
+  if (target.id === 'ledger-delete-cancel' || target.id === 'ledger-delete-overlay') {
+    closeLedgerDeleteModal();
+    return;
+  }
+  if (target.id === 'ledger-delete-confirm' && _pendingDeleteLedgerId) {
+    try {
+      await api(`/api/ledgers/${_pendingDeleteLedgerId}`, { method: 'DELETE' });
+      closeLedgerDeleteModal();
+      await loadLedgers();
+      await loadAccounts();
+      showStatus('已刪除帳本');
+    } catch (err) {
+      showStatus(err.message === 'LEDGER_DELETE_LAST' ? '無法刪除：至少需保留一個帳本' : (err.message || '刪除失敗'), true);
+    }
+    return;
+  }
+
   // 總資產彈窗：關閉
   if (target.id === 'assets-trend-modal-close' || target.id === 'assets-trend-modal-overlay') {
     closeAssetsTrendModal();
@@ -3291,16 +3332,7 @@ document.addEventListener('click', async (event) => {
       if (name) await api(`/api/ledgers/${target.dataset.ledgerRename}/name`, { method: 'PATCH', body: JSON.stringify({ name }) });
       await refreshCurrentView();
     } else if (target.dataset.ledgerDelete) {
-      if (confirm('確定要刪除此帳本？此操作將同時刪除帳本內所有交易紀錄，且無法復原。')) {
-        try {
-          await api(`/api/ledgers/${target.dataset.ledgerDelete}`, { method: 'DELETE' });
-          await loadLedgers();
-          await loadAccounts();
-          showStatus('已刪除帳本');
-        } catch (err) {
-          showStatus(err.message === 'LEDGER_DELETE_LAST' ? '無法刪除：至少需保留一個帳本' : (err.message || '刪除失敗'), true);
-        }
-      }
+      openLedgerDeleteModal(target.dataset.ledgerDelete, target.dataset.ledgerName || '');
     } else if (target.dataset.ledgerArchive) {
       if (confirm('確定要封存這個帳本？')) {
         await api(`/api/ledgers/${target.dataset.ledgerArchive}/archive`, { method: 'PATCH' });
@@ -4018,6 +4050,7 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     if (e.key === 'Escape') {
       closeSearch();
       closeAssetsTrendModal();
+      closeLedgerDeleteModal();
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); openSearch(); }
   });

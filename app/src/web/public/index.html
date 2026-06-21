@@ -797,6 +797,23 @@
     </div>
 
     <!-- ── 新增交易 Modal ────────────────────────────────────────────────────── -->
+    <!-- 帳本刪除確認 modal -->
+    <div id="ledger-delete-overlay" class="modal-overlay" hidden>
+      <div class="modal" style="max-width:420px" role="dialog" aria-modal="true">
+        <h2 style="color:var(--danger)">刪除帳本</h2>
+        <p id="ledger-delete-warning" style="color:var(--text);margin:12px 0 6px">
+          此操作將永久刪除帳本「<strong id="ledger-delete-name-display"></strong>」及其所有交易紀錄，且<strong style="color:var(--danger)">無法復原</strong>。
+        </p>
+        <p style="font-size:var(--text-sm);color:var(--muted);margin-bottom:10px">請輸入帳本名稱以確認刪除：</p>
+        <input id="ledger-delete-confirm-input" type="text" placeholder="輸入帳本名稱"
+               style="width:100%;box-sizing:border-box;margin-bottom:14px" autocomplete="off" />
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="ledger-delete-cancel" class="secondary">取消</button>
+          <button id="ledger-delete-confirm" class="danger" disabled>確認刪除</button>
+        </div>
+      </div>
+    </div>
+
     <div id="tx-modal-overlay" class="modal-overlay" hidden>
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <h2 id="modal-title">新增交易</h2>
