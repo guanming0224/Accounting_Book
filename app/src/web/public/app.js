@@ -545,8 +545,8 @@ async function loadNetAmountTrendBg(totalIncome, balance) {
   const yMax = totalIncome > 0 ? totalIncome : (Math.max(...data) || 1);
   const floorVal = balance;
   const isDark = document.documentElement.dataset.theme === 'dark';
-  const barCol = isDark ? 'rgba(0,255,255,0.55)' : 'rgba(26,127,100,0.45)';
-  const lineCol = isDark ? 'rgba(255,0,255,0.85)' : 'rgba(217,119,6,0.75)';
+  const barCol = isDark ? 'rgba(0,255,255,0.80)' : 'rgba(26,127,100,0.45)';
+  const lineCol = isDark ? 'rgba(255,0,255,1.00)' : 'rgba(217,119,6,0.75)';
 
   if (_netAmountBgChart) { _netAmountBgChart.destroy(); _netAmountBgChart = null; }
   _netAmountBgChart = new Chart(canvas, {
