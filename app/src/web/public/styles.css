@@ -42,7 +42,8 @@ body {
   margin: 0;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 1fr;
+  grid-template-rows: 52px minmax(0, 1fr);
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", Arial, sans-serif;
@@ -94,48 +95,87 @@ select {
 .sidebar {
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
-  padding: 20px 14px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  overflow: hidden;
 }
 
 .brand {
-  display: grid;
-  gap: 5px;
-  padding: 4px 8px 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 0;
+  border-bottom: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.14);
+  margin-bottom: 0;
+  margin-right: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.brand span {
-  color: var(--sidebar-muted);
-  font-size: 13px;
+/* 使用者 ID 在頂部 nav 隱藏，省空間 */
+.brand span#user-label {
+  display: none;
 }
 
 nav {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 6px 0;
 }
 
+nav::-webkit-scrollbar { display: none; }
+
 .nav-button {
-  width: 100%;
-  text-align: left;
+  white-space: nowrap;
+  width: auto;
+  text-align: center;
+  padding: 6px 10px;
+  font-size: 13px;
+  flex-shrink: 0;
   background: transparent;
   color: var(--sidebar-text);
+  border-radius: 6px;
 }
 
 .nav-button.active {
-  background: rgba(255, 255, 255, 0.07);
-  border-left: 3px solid var(--primary);
-  padding-left: 9px;
+  background: rgba(255, 255, 255, 0.10);
+  border-left: none;
+  padding-left: 10px;
   font-weight: 600;
   color: #fff;
+  border-bottom: 2px solid var(--primary);
+  border-radius: 6px 6px 0 0;
 }
 .nav-button:not(.active):hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* nav group labels 在橫向 nav 中改為細分隔線 */
+.nav-group-label {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 6px;
+  padding: 0;
+  font-size: 0;
+  flex-shrink: 0;
 }
 
 .content {
   min-width: 0;
   padding: 22px;
+  overflow-y: auto;
 }
 
 .topbar {
@@ -520,21 +560,16 @@ tbody tr:hover td {
 
 @media (max-width: 860px) {
   body {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    position: sticky;
-    top: 0;
-    z-index: 2;
+    grid-template-rows: 52px minmax(0, 1fr);
   }
 
   nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 2px;
   }
 
   .nav-button {
-    text-align: center;
+    padding: 5px 8px;
+    font-size: 12px;
   }
 
   .dashboard-top-grid {
@@ -1020,16 +1055,19 @@ tbody tr:hover td {
 
 /* ── Cyberpunk: 側邊欄 ──────────────────────────────────────────────────── */
 :root[data-theme="dark"] .sidebar {
-  background: linear-gradient(180deg, var(--sidebar-bg) 0%, #030310 100%);
-  border-right: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border);
 }
 :root[data-theme="dark"] .nav-button.active {
-  background: rgba(0,255,255,0.06);
-  border-left: 3px solid var(--primary);
+  background: rgba(0,255,255,0.08);
+  border-left: none;
+  border-bottom: 2px solid var(--primary);
   color: var(--primary);
-  box-shadow: inset 4px 0 14px rgba(0,255,255,0.06);
+  padding-left: 10px;
+  border-radius: 6px 6px 0 0;
 }
-:root[data-theme="dark"] .nav-button:not(.active):hover { background: rgba(0,255,255,0.04); }
+:root[data-theme="dark"] .nav-button:not(.active):hover { background: rgba(0,255,255,0.05); }
+:root[data-theme="dark"] .nav-group-label { background: rgba(0,255,255,0.15); }
 
 /* ── Cyberpunk: 圖表與進度條 ────────────────────────────────────────────── */
 :root[data-theme="dark"] .bar-fill { background: var(--primary); box-shadow: 0 0 6px rgba(0,255,255,0.35); }
