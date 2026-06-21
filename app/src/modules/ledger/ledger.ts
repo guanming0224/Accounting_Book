@@ -4,28 +4,8 @@ import { Ledger } from '../../types';
 import { LEDGER_NAMES } from '../../constants';
 
 export class LedgerModule {
-  async createDefaultLedgers(userId: number): Promise<void> {
-    // Check if user already has ledgers
-    const existing = await db.get(
-      'SELECT COUNT(*) as count FROM ledgers WHERE userId = ?',
-      [userId]
-    ) as any;
-
-    if (existing.count > 0) {
-      return;
-    }
-
-    // Create 2 default ledgers
-    for (let i = 1; i <= 2; i++) {
-      const name = LEDGER_NAMES[i as keyof typeof LEDGER_NAMES];
-      await db.run(
-        'INSERT INTO ledgers (userId, name, isArchived) VALUES (?, ?, 0)',
-        [userId, name]
-      );
-    }
-
-    // Invalidate cache
-    await cacheManager.invalidateLedgerCache(userId);
+  async createDefaultLedgers(_userId: number): Promise<void> {
+    // No default ledgers — users start with a clean slate
   }
 
   async getUserLedgers(userId: number): Promise<Ledger[]> {
