@@ -766,13 +766,19 @@ function renderAssetsTrendModalChart() {
   grad.addColorStop(1, 'rgba(0,0,0,0)');
 
   const isBar   = _assetsTrendStyle === 'bar';
-  const tension = _assetsTrendStyle === 'curve' ? 0.42 : 0;
+  const isCurve = _assetsTrendStyle === 'curve';
 
   const dataset = isBar
     ? { type: 'bar', data, backgroundColor: isDark ? 'rgba(0,255,255,0.55)' : 'rgba(26,127,100,0.50)', borderRadius: 4 }
-    : { type: 'line', data, borderColor: primary, backgroundColor: grad,
-        borderWidth: 2, tension, fill: true, pointRadius: pts.length > 60 ? 0 : 3,
-        pointBackgroundColor: primary };
+    : {
+        type: 'line', data, borderColor: primary, backgroundColor: grad,
+        borderWidth: 2,
+        tension: isCurve ? 0.65 : 0,
+        cubicInterpolationMode: isCurve ? 'default' : undefined,
+        fill: true,
+        pointRadius: pts.length > 60 ? 0 : 3,
+        pointBackgroundColor: primary,
+      };
 
   _assetsTrendModalChart = new Chart(canvas, {
     type: isBar ? 'bar' : 'line',
