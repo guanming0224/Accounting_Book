@@ -169,78 +169,86 @@
 
       <!-- ── 交易 ─────────────────────────────────────────────────────────── -->
       <section id="transactions-view" class="view">
-        <section class="panel">
-          <div class="section-header">
-            <h2>交易查詢</h2>
-            <button id="export-csv-btn" class="secondary">匯出 CSV</button>
-          </div>
-          <form id="transaction-filter" class="toolbar">
-            <select name="ledgerId"></select>
-            <div class="date-presets">
-              <button type="button" data-preset="today">今天</button>
-              <button type="button" data-preset="week">本週</button>
-              <button type="button" data-preset="month">本月</button>
-              <button type="button" data-preset="last-month">上月</button>
-            </div>
-            <input type="date" name="start" />
-            <input type="date" name="end" />
-            <button type="submit">查詢</button>
-          </form>
-          <div id="transaction-summary" class="summary"></div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width:32px"><input type="checkbox" id="select-all-tx" title="全選"></th>
-                  <th>時間</th>
-                  <th>類型</th>
-                  <th>金額</th>
-                  <th>類別</th>
-                  <th>付款方式</th>
-                  <th>幣別</th>
-                  <th>標籤</th>
-                  <th>備註</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="transactions-table"></tbody>
-            </table>
-          </div>
-        </section>
+        <!-- Tab bar -->
+        <div class="page-tabs">
+          <button class="page-tab active" data-tab="tx-query">交易查詢</button>
+          <button class="page-tab" data-tab="tx-search">進階搜尋</button>
+          <button id="export-csv-btn" class="secondary page-tabs-action">匯出 CSV</button>
+        </div>
 
-        <section class="panel">
-          <h2>進階搜尋</h2>
-          <form id="advanced-search-form" class="toolbar" style="flex-wrap:wrap;gap:8px;">
-            <input name="keyword" placeholder="關鍵字" style="width:140px;" />
-            <input name="minAmount" type="number" placeholder="最小金額" style="width:110px;" min="0" step="0.01" />
-            <input name="maxAmount" type="number" placeholder="最大金額" style="width:110px;" min="0" step="0.01" />
-            <select name="type">
-              <option value="">全部類型</option>
-              <option value="expense">支出</option>
-              <option value="income">進帳</option>
-            </select>
-            <input type="date" name="start" />
-            <input type="date" name="end" />
-            <button type="submit">搜尋</button>
-          </form>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>時間</th>
-                  <th>類型</th>
-                  <th>金額</th>
-                  <th>類別</th>
-                  <th>帳本</th>
-                  <th>幣別</th>
-                  <th>標籤</th>
-                  <th>備註</th>
-                </tr>
-              </thead>
-              <tbody id="search-results-table"></tbody>
-            </table>
-          </div>
-        </section>
+        <!-- 交易查詢 tab -->
+        <div class="page-tab-panel active" id="tx-query-panel">
+          <section class="panel">
+            <form id="transaction-filter" class="toolbar">
+              <select name="ledgerId"></select>
+              <div class="date-presets">
+                <button type="button" data-preset="today">今天</button>
+                <button type="button" data-preset="week">本週</button>
+                <button type="button" data-preset="month">本月</button>
+                <button type="button" data-preset="last-month">上月</button>
+              </div>
+              <input type="date" name="start" />
+              <input type="date" name="end" />
+              <button type="submit">查詢</button>
+            </form>
+            <div id="transaction-summary" class="summary"></div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:32px"><input type="checkbox" id="select-all-tx" title="全選"></th>
+                    <th>時間</th>
+                    <th>類型</th>
+                    <th>金額</th>
+                    <th>類別</th>
+                    <th>付款方式</th>
+                    <th>幣別</th>
+                    <th>標籤</th>
+                    <th>備註</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="transactions-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- 進階搜尋 tab -->
+        <div class="page-tab-panel" id="tx-search-panel">
+          <section class="panel">
+            <form id="advanced-search-form" class="toolbar" style="flex-wrap:wrap;gap:8px;">
+              <input name="keyword" placeholder="關鍵字" style="width:140px;" />
+              <input name="minAmount" type="number" placeholder="最小金額" style="width:110px;" min="0" step="0.01" />
+              <input name="maxAmount" type="number" placeholder="最大金額" style="width:110px;" min="0" step="0.01" />
+              <select name="type">
+                <option value="">全部類型</option>
+                <option value="expense">支出</option>
+                <option value="income">進帳</option>
+              </select>
+              <input type="date" name="start" />
+              <input type="date" name="end" />
+              <button type="submit">搜尋</button>
+            </form>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>時間</th>
+                    <th>類型</th>
+                    <th>金額</th>
+                    <th>類別</th>
+                    <th>帳本</th>
+                    <th>幣別</th>
+                    <th>標籤</th>
+                    <th>備註</th>
+                  </tr>
+                </thead>
+                <tbody id="search-results-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
 
       </section>
 

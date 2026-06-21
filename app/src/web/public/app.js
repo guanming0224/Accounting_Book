@@ -2738,6 +2738,16 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
+  // Page-level tabs (e.g. 交易查詢 / 進階搜尋)
+  const pageTab = target.closest('.page-tab');
+  if (pageTab) {
+    const tabId = pageTab.dataset.tab;
+    const container = pageTab.closest('.view');
+    container.querySelectorAll('.page-tab').forEach(t => t.classList.toggle('active', t === pageTab));
+    container.querySelectorAll('.page-tab-panel').forEach(p => p.classList.toggle('active', p.id === `${tabId}-panel`));
+    return;
+  }
+
   // Navigation — category tab button (navigate to first view in category)
   const catBtn = target.closest('.cat-btn');
   if (catBtn && !target.closest('.cat-dropdown')) {

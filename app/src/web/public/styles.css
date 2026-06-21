@@ -230,6 +230,43 @@ select {
   background: rgba(0,255,255,0.06);
 }
 
+/* ── Page-level tabs (e.g. 交易 view) ──────────────────────────────────── */
+.page-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 2px solid var(--line);
+  margin-bottom: 18px;
+}
+
+.page-tab {
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 18px;
+  border-radius: 6px 6px 0 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+.page-tab:hover { color: var(--text); background: var(--surface-alt); }
+.page-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+  background: transparent;
+}
+
+.page-tabs-action { margin-left: auto; }
+
+.page-tab-panel { display: none; }
+.page-tab-panel.active { display: block; }
+
+:root[data-theme="dark"] .page-tabs { border-bottom-color: var(--border); }
+:root[data-theme="dark"] button.page-tab { color: var(--muted); background: transparent; font-weight: 500; }
+:root[data-theme="dark"] button.page-tab:hover { color: var(--text); background: var(--surface-alt); }
+:root[data-theme="dark"] button.page-tab.active { color: var(--primary); background: transparent; font-weight: 600; border-bottom-color: var(--primary); }
+
 .topbar {
   display: flex;
   align-items: center;
