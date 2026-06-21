@@ -490,18 +490,37 @@ function renderAssetsBgChart() {
   const pts = groupAssetsByRange(_assetsTrendHistory, '30d');
   if (pts.length < 2) return;
 
-  const isDark   = document.documentElement.dataset.theme === 'dark';
-  const primary  = isDark ? 'rgba(0,255,255,0.90)' : 'rgba(26,127,100,0.90)';
-  const fillTop  = isDark ? 'rgba(0,255,255,0.30)' : 'rgba(26,127,100,0.22)';
-  const fillBot  = isDark ? 'rgba(0,255,255,0.00)' : 'rgba(26,127,100,0.00)';
-  const isBar    = _assetsTrendStyle === 'bar';
-  const isCurve  = _assetsTrendStyle === 'curve';
-
   if (_assetsTrendChart) { _assetsTrendChart.destroy(); _assetsTrendChart = null; }
 
-  const ctx  = canvas.getContext('2d');
-  const h    = canvas.offsetHeight || 200;
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  const isDark   = document.documentElement.dataset.theme === 'dark';
+  const primary  = isDark ? 'rgba(0,255,255,0.90)' : 'rgba(26,127,100,0.90)';
+  const isBar    = _assetsTrendStyle === 'bar';
+  const isCurve  = _assetsTrendStyle === 'curve';
+  const dataMax  = Math.max(...pts.map(p => p.netWorth));
+
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W   = canvas.offsetWidth  || canvas.width  / dpr;
+  const H   = canvas.offsetHeight || canvas.height / dpr;
+
+  // All-zero: draw a flat line near the bottom with no fill, skip Chart.js
+  if (dataMax === 0) {
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+    ctx.beginPath();
+    ctx.moveTo(0, H - 4);
+    ctx.lineTo(W, H - 4);
+    ctx.strokeStyle = primary;
+    ctx.lineWidth   = 2;
+    ctx.stroke();
+    return;
+  }
+
+  const fillTop  = isDark ? 'rgba(0,255,255,0.30)' : 'rgba(26,127,100,0.22)';
+  const fillBot  = isDark ? 'rgba(0,255,255,0.00)' : 'rgba(26,127,100,0.00)';
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
   grad.addColorStop(0, fillTop);
   grad.addColorStop(1, fillBot);
 
@@ -525,12 +544,7 @@ function renderAssetsBgChart() {
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
       scales: {
         x: { display: false },
-        y: {
-          display: false,
-          min: 0,
-          // When all data is 0, force a positive range so the line sits at the bottom
-          suggestedMax: Math.max(1, ...pts.map(p => p.netWorth)) * 1.15,
-        }
+        y: { display: false, min: 0, suggestedMax: dataMax * 1.15 }
       },
       layout: { padding: { top: 24, left: 0, right: 0, bottom: 0 } },
     }
