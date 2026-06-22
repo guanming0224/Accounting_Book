@@ -1892,27 +1892,99 @@ async function startWebServer() {
 
   // ── Mi Home 小米智慧家電 ──────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { miCloudProtocol: MiCloudProtocol } = require('node-mihome');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const miio = require('miio');
 
-  app.get('/api/mi-home/devices', asyncHandler(async (req, res) => {
+  // One cloud session per server process (not per user — single-user app)
+  let _miCloud: any = null;
+  let _miCloudCountry = 'cn';
+
+  function getMiCloud() {
+    if (!_miCloud) _miCloud = new MiCloudProtocol();
+    return _miCloud;
+  }
+
+  // Login with Mi Cloud account
+  app.post('/api/mi-home/cloud-login', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const userId = await resolveUserId(req);
-    const devices = await db.all<any>('SELECT id, userId, name, ip, createdAt FROM mi_devices WHERE userId = ? ORDER BY createdAt ASC', [userId]);
+    const { username, password, country } = req.body;
+    if (!username || !password) throw new Error('USERNAME_PASSWORD_REQUIRED');
+    _miCloudCountry = country || 'cn';
+    // Reset session if already logged in
+    if (_miCloud && _miCloud.isLoggedIn) {
+      try { _miCloud.logout(); } catch { /* ignore */ }
+    }
+    _miCloud = new MiCloudProtocol();
+    try {
+      await _miCloud.login(String(username), String(password));
+    } catch (err: any) {
+      _miCloud = null;
+      throw new Error('LOGIN_FAILED: ' + (err.message || String(err)));
+    }
+    // Persist credentials in app_config (for server restart recovery)
+    await db.run(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('mi_cloud_user', ?)`, [String(username)]);
+    await db.run(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('mi_cloud_country', ?)`, [_miCloudCountry]);
+    res.json({ ok: true, loggedIn: true });
+  }));
+
+  // Logout
+  app.post('/api/mi-home/cloud-logout', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    if (_miCloud && _miCloud.isLoggedIn) { try { _miCloud.logout(); } catch { /* ignore */ } }
+    _miCloud = null;
+    await db.run(`DELETE FROM app_config WHERE key IN ('mi_cloud_user', 'mi_cloud_country')`);
+    res.json({ ok: true });
+  }));
+
+  // Get login status
+  app.get('/api/mi-home/cloud-status', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userRow = await db.get<any>(`SELECT value FROM app_config WHERE key = 'mi_cloud_user'`);
+    const loggedIn = !!(_miCloud && _miCloud.isLoggedIn);
+    res.json({ loggedIn, username: userRow?.value || null, country: _miCloudCountry });
+  }));
+
+  // Fetch all devices from Mi Cloud
+  app.get('/api/mi-home/cloud-devices', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const cloud = getMiCloud();
+    if (!cloud.isLoggedIn) throw new Error('NOT_LOGGED_IN');
+    const country = (req.query.country as string) || _miCloudCountry;
+    const rawDevices = await cloud.getDevices(null, { country });
+    const devices = rawDevices.map((d: any) => ({
+      did: d.did,
+      name: d.name,
+      model: d.model,
+      ip: d.localip || '',
+      token: d.token || '',
+      online: !!d.localip,
+    }));
     res.json(devices);
   }));
 
+  // Add a cloud device to monitored list
   app.post('/api/mi-home/devices', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
-    const { name, ip, token } = req.body;
-    if (!name || !ip || !token) throw new Error('NAME_IP_TOKEN_REQUIRED');
+    const { name, ip, token, did, model } = req.body;
+    if (!name || !token) throw new Error('NAME_TOKEN_REQUIRED');
     const result = await db.run(
-      'INSERT INTO mi_devices (userId, name, ip, token) VALUES (?, ?, ?, ?)',
-      [userId, String(name), String(ip), String(token)]
+      'INSERT OR IGNORE INTO mi_devices (userId, name, ip, token, did, model) VALUES (?, ?, ?, ?, ?, ?)',
+      [userId, String(name), String(ip || ''), String(token), String(did || ''), String(model || '')]
     );
-    res.json(await db.get<any>('SELECT id, userId, name, ip, createdAt FROM mi_devices WHERE id = ?', [result.lastID]));
+    res.json(await db.get<any>('SELECT id, userId, name, ip, did, model, createdAt FROM mi_devices WHERE id = ?', [result.lastID]));
   }));
 
+  // List monitored devices
+  app.get('/api/mi-home/devices', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const devices = await db.all<any>('SELECT id, userId, name, ip, did, model, createdAt FROM mi_devices WHERE userId = ? ORDER BY createdAt ASC', [userId]);
+    res.json(devices);
+  }));
+
+  // Delete a monitored device
   app.delete('/api/mi-home/devices/:id', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
@@ -1921,6 +1993,7 @@ async function startWebServer() {
     res.json({ ok: true });
   }));
 
+  // Fetch live data for one device via miio (local) or Mi Cloud miioCall
   app.get('/api/mi-home/devices/:id/live', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
@@ -1930,22 +2003,35 @@ async function startWebServer() {
     let watts = 0;
     let totalKwh = 0;
     let connected = false;
-    try {
-      const miDevice = await miio.device({ address: device.ip, token: device.token });
+
+    // Try local miio first (faster), fallback to Mi Cloud RPC
+    if (device.ip && device.token) {
       try {
-        const props = await (miDevice as any).loadProperties(['power_consume_rate', 'power_cost']);
-        watts = Number(props.power_consume_rate) || 0;
-        totalKwh = Number(props.power_cost) || 0;
-      } catch {
+        const miDevice = await miio.device({ address: device.ip, token: device.token });
         try {
-          const props = await (miDevice as any).loadProperties(['electric_power', 'power_cost']);
-          watts = (Number(props.electric_power) || 0) / 100;
+          const props = await (miDevice as any).loadProperties(['power_consume_rate', 'power_cost']);
+          watts = Number(props.power_consume_rate) || 0;
           totalKwh = Number(props.power_cost) || 0;
-        } catch { /* device may not support energy reporting */ }
-      }
-      await (miDevice as any).destroy();
-      connected = true;
-    } catch { /* device unreachable */ }
+        } catch {
+          const props = await (miDevice as any).loadProperties(['electric_power', 'power_cost']).catch(() => ({}));
+          watts = (Number((props as any).electric_power) || 0) / 100;
+          totalKwh = Number((props as any).power_cost) || 0;
+        }
+        await (miDevice as any).destroy();
+        connected = true;
+      } catch { /* local unreachable, try cloud */ }
+    }
+
+    if (!connected && device.did && _miCloud && _miCloud.isLoggedIn) {
+      try {
+        const result = await _miCloud.miioCall(device.did, 'get_prop', ['power_consume_rate', 'power_cost'], { country: _miCloudCountry });
+        if (Array.isArray(result)) {
+          watts = Number(result[0]) || 0;
+          totalKwh = Number(result[1]) || 0;
+        }
+        connected = true;
+      } catch { /* cloud call also failed */ }
+    }
 
     if (connected) {
       await db.run('INSERT INTO mi_power_readings (deviceId, watts, totalKwh) VALUES (?, ?, ?)', [device.id, watts, totalKwh]);
@@ -1953,6 +2039,7 @@ async function startWebServer() {
     res.json({ id: device.id, name: device.name, watts, totalKwh, estimatedHourlyKwh: parseFloat((watts / 1000).toFixed(4)), connected });
   }));
 
+  // Aggregate stats for charts
   app.get('/api/mi-home/stats', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
@@ -1970,7 +2057,6 @@ async function startWebServer() {
        GROUP BY day ORDER BY day ASC`,
       deviceIds
     );
-
     const monthly = await db.all<any>(
       `SELECT strftime('%Y-%m-%d', recordedAt) as day,
               ROUND(AVG(watts), 2) as avgWatts,
@@ -1981,7 +2067,6 @@ async function startWebServer() {
        GROUP BY day ORDER BY day ASC`,
       deviceIds
     );
-
     const history = await db.all<any>(
       `SELECT strftime('%Y-%m-%d', recordedAt) as day,
               ROUND(AVG(watts), 2) as avgWatts,
@@ -1992,7 +2077,6 @@ async function startWebServer() {
        GROUP BY day ORDER BY day ASC`,
       deviceIds
     );
-
     res.json({ weekly, monthly, history });
   }));
 

@@ -340,8 +340,10 @@ export class Database {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             userId INTEGER NOT NULL,
             name TEXT NOT NULL,
-            ip TEXT NOT NULL,
+            ip TEXT NOT NULL DEFAULT '',
             token TEXT NOT NULL,
+            did TEXT DEFAULT '',
+            model TEXT DEFAULT '',
             createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (userId) REFERENCES users(userId)
           )

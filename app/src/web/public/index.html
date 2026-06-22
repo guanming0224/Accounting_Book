@@ -782,29 +782,45 @@
       </section>
       <!-- ── 小米智慧家電 ──────────────────────────────────────────────── -->
       <section id="mi-home-view" class="view">
-        <!-- 裝置設定 -->
-        <section class="panel">
-          <div class="section-header">
-            <h2>裝置設定</h2>
-            <button id="mi-add-device-btn" class="secondary">+ 新增裝置</button>
-          </div>
-          <form id="mi-device-form" class="inline-form" style="display:none;flex-wrap:wrap;gap:8px;margin-top:12px">
-            <input id="mi-device-name" type="text" placeholder="裝置名稱（如：客廳插座）" maxlength="40" required style="flex:1;min-width:130px" />
-            <input id="mi-device-ip" type="text" placeholder="IP 位址（如：192.168.1.100）" required style="flex:1;min-width:150px" />
-            <input id="mi-device-token" type="text" placeholder="裝置 Token（32位十六進位）" maxlength="64" required style="flex:2;min-width:200px" />
-            <button type="submit">新增</button>
-            <button type="button" id="mi-device-form-cancel" class="secondary">取消</button>
+
+        <!-- 米家帳號登入 -->
+        <section class="panel" id="mi-login-panel">
+          <h2>米家帳號</h2>
+          <div id="mi-login-status" style="margin-bottom:12px;font-size:13px" class="text-muted">未登入</div>
+          <form id="mi-login-form" class="inline-form" style="flex-wrap:wrap;gap:8px">
+            <input id="mi-username" type="text" placeholder="手機號碼 / 電子郵件" required style="flex:1;min-width:180px" />
+            <input id="mi-password" type="password" placeholder="密碼" required style="flex:1;min-width:150px" />
+            <select id="mi-region">
+              <option value="cn">中國 (cn)</option>
+              <option value="tw" selected>台灣 (tw)</option>
+              <option value="sg">新加坡 (sg)</option>
+              <option value="us">美國 (us)</option>
+              <option value="de">歐洲 (de)</option>
+            </select>
+            <button type="submit" id="mi-login-btn">登入</button>
+            <button type="button" id="mi-logout-btn" class="secondary" style="display:none">登出</button>
           </form>
-          <div id="mi-devices-list" style="margin-top:12px"></div>
         </section>
 
-        <!-- 即時數據 -->
+        <!-- 雲端設備清單（登入後顯示） -->
+        <section class="panel" id="mi-cloud-devices-panel" style="display:none">
+          <div class="section-header">
+            <h2>雲端設備清單</h2>
+            <button id="mi-fetch-devices-btn" class="secondary">↺ 重新抓取</button>
+          </div>
+          <p class="text-muted" style="font-size:12px;margin-bottom:10px">勾選要加入監控的設備（需支援用電回報功能）</p>
+          <div id="mi-cloud-device-list" style="display:flex;flex-direction:column;gap:6px"></div>
+        </section>
+
+        <!-- 已監控設備 -->
         <section class="panel">
           <div class="section-header">
-            <h2>即時用電</h2>
-            <button id="mi-refresh-btn" class="secondary">↺ 更新</button>
+            <h2>監控中的設備</h2>
+            <button id="mi-refresh-btn" class="secondary">↺ 更新數據</button>
           </div>
-          <div id="mi-live-cards" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px"></div>
+          <div id="mi-live-cards" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px">
+            <p class="text-muted" style="font-size:13px">尚無監控設備</p>
+          </div>
         </section>
 
         <!-- 總結 -->

@@ -3136,38 +3136,76 @@ function loadFinanceTrends() {
 
 // ── Mi Home 小米智慧家電 ───────────────────────────────────────────────────
 async function loadMiHome() {
-  await renderMiDevicesList();
-  await refreshMiLiveData();
+  await renderMiLoginStatus();
+  await renderMiMonitoredDevices();
   await renderMiCharts();
 }
 
-async function renderMiDevicesList() {
-  const listEl = document.getElementById('mi-devices-list');
-  if (!listEl) return;
-  const devices = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
-  if (!devices.length) {
-    listEl.innerHTML = '<p class="text-muted" style="font-size:13px">尚無裝置，點擊「新增裝置」開始設定</p>';
-    return;
-  }
-  listEl.innerHTML = devices.map(d => `
-    <div class="row" data-mi-device-id="${d.id}">
-      <div class="row-main">
-        <div class="row-title">${d.name}</div>
-        <div class="row-meta">${d.ip}</div>
-      </div>
-      <button class="danger mi-delete-device-btn" data-id="${d.id}">刪除</button>
-    </div>
-  `).join('');
-  listEl.querySelectorAll('.mi-delete-device-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('確定要刪除這台裝置嗎？')) return;
-      await apiFetch(`/api/mi-home/devices/${btn.dataset.id}`, { method: 'DELETE' });
-      await loadMiHome();
-    });
-  });
+async function renderMiLoginStatus() {
+  const status = await apiFetch('/api/mi-home/cloud-status').then(r => r.json()).catch(() => ({ loggedIn: false }));
+  const statusEl = document.getElementById('mi-login-status');
+  const loginBtn = document.getElementById('mi-login-btn');
+  const logoutBtn = document.getElementById('mi-logout-btn');
+  const cloudPanel = document.getElementById('mi-cloud-devices-panel');
+
+  if (statusEl) statusEl.textContent = status.loggedIn ? `已登入：${status.username}（${status.country}）` : '未登入';
+  if (loginBtn) loginBtn.style.display = status.loggedIn ? 'none' : '';
+  if (logoutBtn) logoutBtn.style.display = status.loggedIn ? '' : 'none';
+  if (cloudPanel) cloudPanel.style.display = status.loggedIn ? '' : 'none';
+
+  if (status.loggedIn) await fetchMiCloudDevices();
 }
 
-async function refreshMiLiveData() {
+async function fetchMiCloudDevices() {
+  const listEl = document.getElementById('mi-cloud-device-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="text-muted" style="font-size:13px">載入中...</p>';
+  try {
+    const devices = await apiFetch('/api/mi-home/cloud-devices').then(r => r.json());
+    const monitored = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
+    const monitoredDids = new Set(monitored.map(d => d.did));
+
+    if (!devices.length) {
+      listEl.innerHTML = '<p class="text-muted" style="font-size:13px">未找到設備</p>';
+      return;
+    }
+    listEl.innerHTML = devices.map(d => `
+      <div class="row">
+        <div class="row-main">
+          <div class="row-title">${d.name}</div>
+          <div class="row-meta">${d.model}${d.ip ? ' · ' + d.ip : ''}${!d.online ? ' · 離線' : ''}</div>
+        </div>
+        ${monitoredDids.has(d.did)
+          ? '<span class="badge" style="background:#1a7f6433;color:#1a7f64;font-size:11px">監控中</span>'
+          : `<button class="secondary mi-add-cloud-device-btn" data-did="${d.did}" data-name="${d.name}" data-ip="${d.ip}" data-token="${d.token}" data-model="${d.model}" style="font-size:12px;padding:4px 10px">加入監控</button>`
+        }
+      </div>
+    `).join('');
+
+    listEl.querySelectorAll('.mi-add-cloud-device-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = '加入中...';
+        try {
+          await apiFetch('/api/mi-home/devices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: btn.dataset.name, ip: btn.dataset.ip, token: btn.dataset.token, did: btn.dataset.did, model: btn.dataset.model }),
+          });
+          await loadMiHome();
+        } catch (err) {
+          showStatus(err.message || '新增失敗', true);
+          btn.disabled = false;
+          btn.textContent = '加入監控';
+        }
+      });
+    });
+  } catch (err) {
+    listEl.innerHTML = `<p class="text-muted" style="font-size:13px">載入失敗：${err.message}</p>`;
+  }
+}
+
+async function renderMiMonitoredDevices() {
   const liveEl = document.getElementById('mi-live-cards');
   const summaryPanel = document.getElementById('mi-summary-panel');
   const summaryEl = document.getElementById('mi-summary-content');
@@ -3175,17 +3213,28 @@ async function refreshMiLiveData() {
 
   const devices = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
   if (!devices.length) {
-    liveEl.innerHTML = '<p class="text-muted" style="font-size:13px">請先新增裝置</p>';
+    liveEl.innerHTML = '<p class="text-muted" style="font-size:13px">尚無監控設備，請從雲端設備清單加入</p>';
     if (summaryPanel) summaryPanel.style.display = 'none';
     return;
   }
 
   liveEl.innerHTML = devices.map(d => `
     <div class="panel" style="flex:1;min-width:200px;padding:16px" id="mi-live-${d.id}">
-      <div style="font-weight:600;margin-bottom:8px">${d.name}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-weight:600">${d.name}</span>
+        <button class="danger mi-remove-device-btn" data-id="${d.id}" style="font-size:11px;padding:2px 8px">移除</button>
+      </div>
       <div class="text-muted" style="font-size:13px">載入中...</div>
     </div>
   `).join('');
+
+  liveEl.querySelectorAll('.mi-remove-device-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('確定移除此設備監控？')) return;
+      await apiFetch(`/api/mi-home/devices/${btn.dataset.id}`, { method: 'DELETE' });
+      await loadMiHome();
+    });
+  });
 
   let totalKwh = 0;
   let totalWatts = 0;
@@ -3197,17 +3246,38 @@ async function refreshMiLiveData() {
       totalKwh += data.totalKwh || 0;
       if (card) {
         card.innerHTML = `
-          <div style="font-weight:600;margin-bottom:10px">${d.name}</div>
-          ${data.connected ? '' : '<div class="badge" style="background:#e11d48;color:#fff;font-size:11px;margin-bottom:8px">離線</div>'}
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <span style="font-weight:600">${d.name}</span>
+            <button class="danger mi-remove-device-btn" data-id="${d.id}" style="font-size:11px;padding:2px 8px">移除</button>
+          </div>
+          ${!data.connected ? '<div style="font-size:11px;color:#e11d48;margin-bottom:6px">離線</div>' : ''}
           <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
             <div style="display:flex;justify-content:space-between"><span class="text-muted">當前瓦數</span><strong>${data.watts.toFixed(1)} W</strong></div>
             <div style="display:flex;justify-content:space-between"><span class="text-muted">估算 1h 用電</span><strong>${data.estimatedHourlyKwh.toFixed(4)} kWh</strong></div>
             <div style="display:flex;justify-content:space-between"><span class="text-muted">累計用電</span><strong>${data.totalKwh.toFixed(3)} kWh</strong></div>
           </div>
         `;
+        card.querySelector('.mi-remove-device-btn')?.addEventListener('click', async () => {
+          if (!confirm('確定移除此設備監控？')) return;
+          await apiFetch(`/api/mi-home/devices/${d.id}`, { method: 'DELETE' });
+          await loadMiHome();
+        });
       }
     } catch {
-      if (card) card.innerHTML = `<div style="font-weight:600;margin-bottom:8px">${d.name}</div><div class="text-muted" style="font-size:13px">無法取得資料</div>`;
+      if (card) {
+        card.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-weight:600">${d.name}</span>
+            <button class="danger mi-remove-device-btn" data-id="${d.id}" style="font-size:11px;padding:2px 8px">移除</button>
+          </div>
+          <div class="text-muted" style="font-size:13px">無法取得資料</div>
+        `;
+        card.querySelector('.mi-remove-device-btn')?.addEventListener('click', async () => {
+          if (!confirm('確定移除此設備監控？')) return;
+          await apiFetch(`/api/mi-home/devices/${d.id}`, { method: 'DELETE' });
+          await loadMiHome();
+        });
+      }
     }
   }));
 
@@ -3215,7 +3285,7 @@ async function refreshMiLiveData() {
     summaryPanel.style.display = '';
     summaryEl.innerHTML = `
       <div><div class="text-muted" style="font-size:12px">所有裝置合計瓦數</div><strong style="font-size:20px">${totalWatts.toFixed(1)} W</strong></div>
-      <div><div class="text-muted" style="font-size:12px">所有裝置合計累計用電</div><strong style="font-size:20px">${totalKwh.toFixed(3)} kWh</strong></div>
+      <div><div class="text-muted" style="font-size:12px">合計累計用電</div><strong style="font-size:20px">${totalKwh.toFixed(3)} kWh</strong></div>
       <div><div class="text-muted" style="font-size:12px">合計估算 1h 用電</div><strong style="font-size:20px">${(totalWatts / 1000).toFixed(4)} kWh</strong></div>
     `;
   }
@@ -3227,21 +3297,11 @@ async function renderMiCharts() {
 
   const barCfg = (labels, data, label) => ({
     type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label,
-        data,
-        backgroundColor: '#1a7f6466',
-        borderColor: '#1a7f64',
-        borderWidth: 1.5,
-        borderRadius: 4,
-      }],
-    },
+    data: { labels, datasets: [{ label, data, backgroundColor: '#1a7f6466', borderColor: '#1a7f64', borderWidth: 1.5, borderRadius: 4 }] },
     options: {
       responsive: true,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} kWh` } } },
-      scales: { y: { ticks: { color: textColor, callback: v => `${v}` }, grid: { color: textColor + '22' } }, x: { ticks: { color: textColor, maxTicksLimit: 14 } } },
+      scales: { y: { ticks: { color: textColor }, grid: { color: textColor + '22' } }, x: { ticks: { color: textColor, maxTicksLimit: 14 } } },
     },
   });
 
@@ -3251,15 +3311,7 @@ async function renderMiCharts() {
     type: 'line',
     data: {
       labels: stats.history.map(d => d.day.slice(5)),
-      datasets: [{
-        label: '平均瓦數 (W)',
-        data: stats.history.map(d => d.avgWatts || 0),
-        borderColor: '#2dd4a0',
-        backgroundColor: '#2dd4a033',
-        fill: true,
-        tension: 0.4,
-        pointRadius: stats.history.length > 30 ? 0 : 3,
-      }],
+      datasets: [{ label: '平均瓦數 (W)', data: stats.history.map(d => d.avgWatts || 0), borderColor: '#2dd4a0', backgroundColor: '#2dd4a033', fill: true, tension: 0.4, pointRadius: stats.history.length > 30 ? 0 : 3 }],
     },
     options: {
       responsive: true,
@@ -4314,31 +4366,33 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     if (cell) showCalDayDetail(cell.dataset.calDate, _calDayMap.get(cell.dataset.calDate));
   });
 
-  // Mi Home device form bindings
-  document.getElementById('mi-add-device-btn')?.addEventListener('click', () => {
-    const form = document.getElementById('mi-device-form');
-    if (form) form.style.display = form.style.display === 'none' ? 'flex' : 'none';
-  });
-  document.getElementById('mi-device-form-cancel')?.addEventListener('click', () => {
-    const form = document.getElementById('mi-device-form');
-    if (form) form.style.display = 'none';
-  });
-  document.getElementById('mi-device-form')?.addEventListener('submit', async (e) => {
+  // Mi Home cloud login
+  document.getElementById('mi-login-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = document.getElementById('mi-device-name').value.trim();
-    const ip = document.getElementById('mi-device-ip').value.trim();
-    const token = document.getElementById('mi-device-token').value.trim();
+    const username = document.getElementById('mi-username').value.trim();
+    const password = document.getElementById('mi-password').value;
+    const country = document.getElementById('mi-region').value;
+    const btn = document.getElementById('mi-login-btn');
+    btn.disabled = true;
+    btn.textContent = '登入中...';
     try {
-      await apiFetch('/api/mi-home/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, ip, token }) });
-      document.getElementById('mi-device-form').style.display = 'none';
-      document.getElementById('mi-device-form').reset();
+      await apiFetch('/api/mi-home/cloud-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, country }) });
+      document.getElementById('mi-login-form').reset();
       await loadMiHome();
     } catch (err) {
-      showStatus(err.message || '新增裝置失敗', true);
+      showStatus((err.message || '登入失敗').replace('LOGIN_FAILED: ', ''), true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '登入';
     }
   });
+  document.getElementById('mi-logout-btn')?.addEventListener('click', async () => {
+    await apiFetch('/api/mi-home/cloud-logout', { method: 'POST' });
+    await loadMiHome();
+  });
+  document.getElementById('mi-fetch-devices-btn')?.addEventListener('click', fetchMiCloudDevices);
   document.getElementById('mi-refresh-btn')?.addEventListener('click', async () => {
-    await refreshMiLiveData();
+    await renderMiMonitoredDevices();
     await renderMiCharts();
   });
 
