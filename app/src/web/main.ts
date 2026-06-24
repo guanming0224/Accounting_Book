@@ -1890,98 +1890,98 @@ async function startWebServer() {
     res.json({ ok: true, deleted: result.changes > 0 });
   }));
 
-  // ── Mi Home 小米智慧家電 ──────────────────────────────────────────────────
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { miCloudProtocol: MiCloudProtocol } = require('node-mihome');
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const miio = require('miio');
-
-  // One cloud session per server process (not per user — single-user app)
-  let _miCloud: any = null;
-  let _miCloudCountry = 'cn';
-
-  function getMiCloud() {
-    if (!_miCloud) _miCloud = new MiCloudProtocol();
-    return _miCloud;
+  // ── Mi Home 小米智慧家電（透過 Home Assistant REST API）─────────────────
+  async function haFetch(path: string, haUrl: string, haToken: string) {
+    const res = await fetch(`${haUrl.replace(/\/$/, '')}${path}`, {
+      headers: { Authorization: `Bearer ${haToken}`, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) throw new Error(`HA ${res.status}: ${res.statusText}`);
+    return res.json() as Promise<any>;
   }
 
-  // Login with Mi Cloud account
-  app.post('/api/mi-home/cloud-login', asyncHandler(async (req, res) => {
-    if (!requireAuth(req, res)) return;
-    const { username, password, country } = req.body;
-    if (!username || !password) throw new Error('USERNAME_PASSWORD_REQUIRED');
-    _miCloudCountry = country || 'cn';
-    // Reset session if already logged in
-    if (_miCloud && _miCloud.isLoggedIn) {
-      try { _miCloud.logout(); } catch { /* ignore */ }
-    }
-    _miCloud = new MiCloudProtocol();
-    try {
-      await _miCloud.login(String(username), String(password));
-    } catch (err: any) {
-      _miCloud = null;
-      throw new Error('LOGIN_FAILED: ' + (err.message || String(err)));
-    }
-    // Persist credentials in app_config (for server restart recovery)
-    await db.run(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('mi_cloud_user', ?)`, [String(username)]);
-    await db.run(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('mi_cloud_country', ?)`, [_miCloudCountry]);
-    res.json({ ok: true, loggedIn: true });
-  }));
+  async function getHaConfig() {
+    const urlRow = await db.get<any>(`SELECT value FROM app_config WHERE key = 'ha_url'`);
+    const tokenRow = await db.get<any>(`SELECT value FROM app_config WHERE key = 'ha_token'`);
+    return { haUrl: urlRow?.value || '', haToken: tokenRow?.value || '' };
+  }
 
-  // Logout
-  app.post('/api/mi-home/cloud-logout', asyncHandler(async (req, res) => {
+  // Save HA connection config
+  app.post('/api/mi-home/ha-config', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
-    if (_miCloud && _miCloud.isLoggedIn) { try { _miCloud.logout(); } catch { /* ignore */ } }
-    _miCloud = null;
-    await db.run(`DELETE FROM app_config WHERE key IN ('mi_cloud_user', 'mi_cloud_country')`);
+    const { haUrl, haToken } = req.body;
+    if (!haUrl || !haToken) throw new Error('HA_URL_TOKEN_REQUIRED');
+    // Test connection
+    try {
+      await haFetch('/api/', String(haUrl), String(haToken));
+    } catch (err: any) {
+      throw new Error('HA_CONNECTION_FAILED: ' + (err.message || String(err)));
+    }
+    await db.run(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('ha_url', ?)`, [String(haUrl)]);
+    await db.run(`INSERT OR REPLACE INTO app_config (key, value) VALUES ('ha_token', ?)`, [String(haToken)]);
     res.json({ ok: true });
   }));
 
-  // Get login status
-  app.get('/api/mi-home/cloud-status', asyncHandler(async (req, res) => {
+  // Get HA connection status
+  app.get('/api/mi-home/ha-status', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const userRow = await db.get<any>(`SELECT value FROM app_config WHERE key = 'mi_cloud_user'`);
-    const loggedIn = !!(_miCloud && _miCloud.isLoggedIn);
-    res.json({ loggedIn, username: userRow?.value || null, country: _miCloudCountry });
+    const { haUrl, haToken } = await getHaConfig();
+    if (!haUrl || !haToken) { res.json({ connected: false, haUrl: '' }); return; }
+    try {
+      await haFetch('/api/', haUrl, haToken);
+      res.json({ connected: true, haUrl });
+    } catch {
+      res.json({ connected: false, haUrl });
+    }
   }));
 
-  // Fetch all devices from Mi Cloud
-  app.get('/api/mi-home/cloud-devices', asyncHandler(async (req, res) => {
+  // Clear HA config
+  app.delete('/api/mi-home/ha-config', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
-    const cloud = getMiCloud();
-    if (!cloud.isLoggedIn) throw new Error('NOT_LOGGED_IN');
-    const country = (req.query.country as string) || _miCloudCountry;
-    const rawDevices = await cloud.getDevices(null, { country });
-    const devices = rawDevices.map((d: any) => ({
-      did: d.did,
-      name: d.name,
-      model: d.model,
-      ip: d.localip || '',
-      token: d.token || '',
-      online: !!d.localip,
-    }));
-    res.json(devices);
+    await db.run(`DELETE FROM app_config WHERE key IN ('ha_url', 'ha_token')`);
+    res.json({ ok: true });
   }));
 
-  // Add a cloud device to monitored list
+  // Fetch all power/energy entities from HA
+  app.get('/api/mi-home/ha-entities', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const { haUrl, haToken } = await getHaConfig();
+    if (!haUrl || !haToken) throw new Error('HA_NOT_CONFIGURED');
+    const states: any[] = await haFetch('/api/states', haUrl, haToken);
+    const entities = states
+      .filter(s => s.attributes?.device_class === 'power' || s.attributes?.device_class === 'energy')
+      .map(s => ({
+        entityId: s.entity_id,
+        name: s.attributes.friendly_name || s.entity_id,
+        state: s.state,
+        unit: s.attributes.unit_of_measurement || '',
+        deviceClass: s.attributes.device_class,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json(entities);
+  }));
+
+  // Add device to monitored list (stores powerEntityId + energyEntityId)
   app.post('/api/mi-home/devices', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
-    const { name, ip, token, did, model } = req.body;
-    if (!name || !token) throw new Error('NAME_TOKEN_REQUIRED');
+    const { name, powerEntityId, energyEntityId } = req.body;
+    if (!name || !powerEntityId) throw new Error('NAME_POWER_ENTITY_REQUIRED');
     const result = await db.run(
-      'INSERT OR IGNORE INTO mi_devices (userId, name, ip, token, did, model) VALUES (?, ?, ?, ?, ?, ?)',
-      [userId, String(name), String(ip || ''), String(token), String(did || ''), String(model || '')]
+      `INSERT INTO mi_devices (userId, name, ip, token, powerEntityId, energyEntityId)
+       VALUES (?, ?, '', '', ?, ?)`,
+      [userId, String(name), String(powerEntityId), String(energyEntityId || '')]
     );
-    res.json(await db.get<any>('SELECT id, userId, name, ip, did, model, createdAt FROM mi_devices WHERE id = ?', [result.lastID]));
+    res.json(await db.get<any>('SELECT * FROM mi_devices WHERE id = ?', [result.lastID]));
   }));
 
   // List monitored devices
   app.get('/api/mi-home/devices', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
-    const devices = await db.all<any>('SELECT id, userId, name, ip, did, model, createdAt FROM mi_devices WHERE userId = ? ORDER BY createdAt ASC', [userId]);
-    res.json(devices);
+    res.json(await db.all<any>(
+      'SELECT id, name, powerEntityId, energyEntityId, createdAt FROM mi_devices WHERE userId = ? ORDER BY createdAt ASC',
+      [userId]
+    ));
   }));
 
   // Delete a monitored device
@@ -1993,45 +1993,29 @@ async function startWebServer() {
     res.json({ ok: true });
   }));
 
-  // Fetch live data for one device via miio (local) or Mi Cloud miioCall
+  // Fetch live data for one device from HA
   app.get('/api/mi-home/devices/:id/live', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const device = await db.get<any>('SELECT * FROM mi_devices WHERE id = ? AND userId = ?', [Number(req.params.id), userId]);
     if (!device) throw new Error('DEVICE_NOT_FOUND');
+    const { haUrl, haToken } = await getHaConfig();
+    if (!haUrl || !haToken) throw new Error('HA_NOT_CONFIGURED');
 
     let watts = 0;
     let totalKwh = 0;
     let connected = false;
-
-    // Try local miio first (faster), fallback to Mi Cloud RPC
-    if (device.ip && device.token) {
-      try {
-        const miDevice = await miio.device({ address: device.ip, token: device.token });
-        try {
-          const props = await (miDevice as any).loadProperties(['power_consume_rate', 'power_cost']);
-          watts = Number(props.power_consume_rate) || 0;
-          totalKwh = Number(props.power_cost) || 0;
-        } catch {
-          const props = await (miDevice as any).loadProperties(['electric_power', 'power_cost']).catch(() => ({}));
-          watts = (Number((props as any).electric_power) || 0) / 100;
-          totalKwh = Number((props as any).power_cost) || 0;
-        }
-        await (miDevice as any).destroy();
-        connected = true;
-      } catch { /* local unreachable, try cloud */ }
-    }
-
-    if (!connected && device.did && _miCloud && _miCloud.isLoggedIn) {
-      try {
-        const result = await _miCloud.miioCall(device.did, 'get_prop', ['power_consume_rate', 'power_cost'], { country: _miCloudCountry });
-        if (Array.isArray(result)) {
-          watts = Number(result[0]) || 0;
-          totalKwh = Number(result[1]) || 0;
-        }
-        connected = true;
-      } catch { /* cloud call also failed */ }
-    }
+    try {
+      if (device.powerEntityId) {
+        const powerState = await haFetch(`/api/states/${device.powerEntityId}`, haUrl, haToken);
+        watts = parseFloat(powerState.state) || 0;
+      }
+      if (device.energyEntityId) {
+        const energyState = await haFetch(`/api/states/${device.energyEntityId}`, haUrl, haToken);
+        totalKwh = parseFloat(energyState.state) || 0;
+      }
+      connected = true;
+    } catch { /* HA unreachable */ }
 
     if (connected) {
       await db.run('INSERT INTO mi_power_readings (deviceId, watts, totalKwh) VALUES (?, ?, ?)', [device.id, watts, totalKwh]);

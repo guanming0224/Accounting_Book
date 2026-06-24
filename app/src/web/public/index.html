@@ -783,33 +783,41 @@
       <!-- ── 小米智慧家電 ──────────────────────────────────────────────── -->
       <section id="mi-home-view" class="view">
 
-        <!-- 米家帳號登入 -->
-        <section class="panel" id="mi-login-panel">
-          <h2>米家帳號</h2>
-          <div id="mi-login-status" style="margin-bottom:12px;font-size:13px" class="text-muted">未登入</div>
-          <form id="mi-login-form" class="inline-form" style="flex-wrap:wrap;gap:8px">
-            <input id="mi-username" type="text" placeholder="手機號碼 / 電子郵件" required style="flex:1;min-width:180px" />
-            <input id="mi-password" type="password" placeholder="密碼" required style="flex:1;min-width:150px" />
-            <select id="mi-region">
-              <option value="cn">中國 (cn)</option>
-              <option value="tw" selected>台灣 (tw)</option>
-              <option value="sg">新加坡 (sg)</option>
-              <option value="us">美國 (us)</option>
-              <option value="de">歐洲 (de)</option>
-            </select>
-            <button type="submit" id="mi-login-btn">登入</button>
-            <button type="button" id="mi-logout-btn" class="secondary" style="display:none">登出</button>
+        <!-- Home Assistant 連線設定 -->
+        <section class="panel" id="mi-ha-config-panel">
+          <h2>Home Assistant 連線設定</h2>
+          <div id="mi-ha-status" style="margin-bottom:12px;font-size:13px" class="text-muted">未設定</div>
+          <form id="mi-ha-config-form" class="inline-form" style="flex-wrap:wrap;gap:8px">
+            <input id="mi-ha-url" type="text" placeholder="HA 位址，例如 http://192.168.1.100:8123" required style="flex:2;min-width:240px" />
+            <input id="mi-ha-token" type="password" placeholder="Long-Lived Access Token" required style="flex:2;min-width:220px" />
+            <button type="submit" id="mi-ha-save-btn">連線</button>
+            <button type="button" id="mi-ha-clear-btn" class="secondary" style="display:none">清除設定</button>
           </form>
+          <p class="text-muted" style="font-size:12px;margin-top:8px">
+            Token 取得方式：HA → 個人檔案 → 下方「長期存取權杖」→ 建立權杖
+          </p>
         </section>
 
-        <!-- 雲端設備清單（登入後顯示） -->
-        <section class="panel" id="mi-cloud-devices-panel" style="display:none">
+        <!-- HA 設備清單（連線後顯示） -->
+        <section class="panel" id="mi-ha-entities-panel" style="display:none">
           <div class="section-header">
-            <h2>雲端設備清單</h2>
-            <button id="mi-fetch-devices-btn" class="secondary">↺ 重新抓取</button>
+            <h2>HA 電力 Entities</h2>
+            <button id="mi-fetch-entities-btn" class="secondary">↺ 重新抓取</button>
           </div>
-          <p class="text-muted" style="font-size:12px;margin-bottom:10px">勾選要加入監控的設備（需支援用電回報功能）</p>
-          <div id="mi-cloud-device-list" style="display:flex;flex-direction:column;gap:6px"></div>
+          <p class="text-muted" style="font-size:12px;margin-bottom:10px">
+            選擇每台設備的「瓦數 entity」和「累計 kWh entity」後加入監控
+          </p>
+          <div id="mi-ha-entity-list" style="display:flex;flex-direction:column;gap:10px"></div>
+          <div id="mi-ha-add-form" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            <input id="mi-ha-device-name" type="text" placeholder="設備名稱" maxlength="40" style="flex:1;min-width:140px" />
+            <select id="mi-ha-power-select" style="flex:2;min-width:200px">
+              <option value="">選擇瓦數 entity (W)</option>
+            </select>
+            <select id="mi-ha-energy-select" style="flex:2;min-width:200px">
+              <option value="">選擇累計用電 entity (kWh)（選填）</option>
+            </select>
+            <button id="mi-ha-add-btn" type="button">加入監控</button>
+          </div>
         </section>
 
         <!-- 已監控設備 -->

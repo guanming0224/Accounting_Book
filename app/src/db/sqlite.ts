@@ -359,6 +359,9 @@ export class Database {
           )
         `);
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_mi_readings_device_time ON mi_power_readings(deviceId, recordedAt)`);
+        // Migration: add HA entity columns if upgrading from older schema
+        this.db.run(`ALTER TABLE mi_devices ADD COLUMN powerEntityId TEXT DEFAULT ''`, () => {});
+        this.db.run(`ALTER TABLE mi_devices ADD COLUMN energyEntityId TEXT DEFAULT ''`, () => {});
 
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_subcategories_category ON user_subcategories(categoryId)`, (err) => {
           if (err) reject(err);

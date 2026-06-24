@@ -3134,72 +3134,68 @@ function loadFinanceTrends() {
   loadNetWorthChart().catch(() => {});
 }
 
-// ── Mi Home 小米智慧家電 ───────────────────────────────────────────────────
+// ── Mi Home 小米智慧家電（Home Assistant）────────────────────────────────
 async function loadMiHome() {
-  await renderMiLoginStatus();
+  await renderMiHaStatus();
   await renderMiMonitoredDevices();
   await renderMiCharts();
 }
 
-async function renderMiLoginStatus() {
-  const status = await apiFetch('/api/mi-home/cloud-status').then(r => r.json()).catch(() => ({ loggedIn: false }));
-  const statusEl = document.getElementById('mi-login-status');
-  const loginBtn = document.getElementById('mi-login-btn');
-  const logoutBtn = document.getElementById('mi-logout-btn');
-  const cloudPanel = document.getElementById('mi-cloud-devices-panel');
+async function renderMiHaStatus() {
+  const status = await apiFetch('/api/mi-home/ha-status').then(r => r.json()).catch(() => ({ connected: false }));
+  const statusEl = document.getElementById('mi-ha-status');
+  const saveBtn = document.getElementById('mi-ha-save-btn');
+  const clearBtn = document.getElementById('mi-ha-clear-btn');
+  const entitiesPanel = document.getElementById('mi-ha-entities-panel');
 
-  if (statusEl) statusEl.textContent = status.loggedIn ? `已登入：${status.username}（${status.country}）` : '未登入';
-  if (loginBtn) loginBtn.style.display = status.loggedIn ? 'none' : '';
-  if (logoutBtn) logoutBtn.style.display = status.loggedIn ? '' : 'none';
-  if (cloudPanel) cloudPanel.style.display = status.loggedIn ? '' : 'none';
+  if (statusEl) statusEl.textContent = status.connected ? `已連線：${status.haUrl}` : status.haUrl ? `連線失敗：${status.haUrl}` : '未設定';
+  if (saveBtn) saveBtn.style.display = status.connected ? 'none' : '';
+  if (clearBtn) clearBtn.style.display = status.connected ? '' : 'none';
+  if (entitiesPanel) entitiesPanel.style.display = status.connected ? '' : 'none';
 
-  if (status.loggedIn) await fetchMiCloudDevices();
+  if (status.connected) await fetchHaEntities();
 }
 
-async function fetchMiCloudDevices() {
-  const listEl = document.getElementById('mi-cloud-device-list');
+let _haEntities = [];
+
+async function fetchHaEntities() {
+  const listEl = document.getElementById('mi-ha-entity-list');
+  const powerSelect = document.getElementById('mi-ha-power-select');
+  const energySelect = document.getElementById('mi-ha-energy-select');
   if (!listEl) return;
+
   listEl.innerHTML = '<p class="text-muted" style="font-size:13px">載入中...</p>';
   try {
-    const devices = await apiFetch('/api/mi-home/cloud-devices').then(r => r.json());
+    _haEntities = await apiFetch('/api/mi-home/ha-entities').then(r => r.json());
     const monitored = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
-    const monitoredDids = new Set(monitored.map(d => d.did));
+    const monitoredEntityIds = new Set(monitored.flatMap(d => [d.powerEntityId, d.energyEntityId].filter(Boolean)));
 
-    if (!devices.length) {
-      listEl.innerHTML = '<p class="text-muted" style="font-size:13px">未找到設備</p>';
-      return;
-    }
-    listEl.innerHTML = devices.map(d => `
-      <div class="row">
-        <div class="row-main">
-          <div class="row-title">${d.name}</div>
-          <div class="row-meta">${d.model}${d.ip ? ' · ' + d.ip : ''}${!d.online ? ' · 離線' : ''}</div>
+    const powerEntities = _haEntities.filter(e => e.deviceClass === 'power');
+    const energyEntities = _haEntities.filter(e => e.deviceClass === 'energy');
+
+    if (!_haEntities.length) {
+      listEl.innerHTML = '<p class="text-muted" style="font-size:13px">未找到 power / energy entity，請確認 HA 中已安裝用電監控整合</p>';
+    } else {
+      listEl.innerHTML = _haEntities.map(e => `
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title">${e.name}</div>
+            <div class="row-meta">${e.entityId} · ${e.state} ${e.unit} · ${e.deviceClass}</div>
+          </div>
+          ${monitoredEntityIds.has(e.entityId) ? '<span class="badge" style="background:#1a7f6433;color:#1a7f64;font-size:11px">監控中</span>' : ''}
         </div>
-        ${monitoredDids.has(d.did)
-          ? '<span class="badge" style="background:#1a7f6433;color:#1a7f64;font-size:11px">監控中</span>'
-          : `<button class="secondary mi-add-cloud-device-btn" data-did="${d.did}" data-name="${d.name}" data-ip="${d.ip}" data-token="${d.token}" data-model="${d.model}" style="font-size:12px;padding:4px 10px">加入監控</button>`
-        }
-      </div>
-    `).join('');
+      `).join('');
+    }
 
-    listEl.querySelectorAll('.mi-add-cloud-device-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        btn.textContent = '加入中...';
-        try {
-          await apiFetch('/api/mi-home/devices', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: btn.dataset.name, ip: btn.dataset.ip, token: btn.dataset.token, did: btn.dataset.did, model: btn.dataset.model }),
-          });
-          await loadMiHome();
-        } catch (err) {
-          showStatus(err.message || '新增失敗', true);
-          btn.disabled = false;
-          btn.textContent = '加入監控';
-        }
-      });
-    });
+    // Populate add-form dropdowns
+    if (powerSelect) {
+      powerSelect.innerHTML = '<option value="">選擇瓦數 entity (W)</option>' +
+        powerEntities.map(e => `<option value="${e.entityId}">${e.name} (${e.state} ${e.unit})</option>`).join('');
+    }
+    if (energySelect) {
+      energySelect.innerHTML = '<option value="">選擇累計用電 entity (kWh)（選填）</option>' +
+        energyEntities.map(e => `<option value="${e.entityId}">${e.name} (${e.state} ${e.unit})</option>`).join('');
+    }
   } catch (err) {
     listEl.innerHTML = `<p class="text-muted" style="font-size:13px">載入失敗：${err.message}</p>`;
   }
@@ -3213,7 +3209,7 @@ async function renderMiMonitoredDevices() {
 
   const devices = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
   if (!devices.length) {
-    liveEl.innerHTML = '<p class="text-muted" style="font-size:13px">尚無監控設備，請從雲端設備清單加入</p>';
+    liveEl.innerHTML = '<p class="text-muted" style="font-size:13px">尚無監控設備，請從上方 HA Entity 清單加入</p>';
     if (summaryPanel) summaryPanel.style.display = 'none';
     return;
   }
@@ -3250,7 +3246,7 @@ async function renderMiMonitoredDevices() {
             <span style="font-weight:600">${d.name}</span>
             <button class="danger mi-remove-device-btn" data-id="${d.id}" style="font-size:11px;padding:2px 8px">移除</button>
           </div>
-          ${!data.connected ? '<div style="font-size:11px;color:#e11d48;margin-bottom:6px">離線</div>' : ''}
+          ${!data.connected ? '<div style="font-size:11px;color:#e11d48;margin-bottom:6px">HA 無法連線</div>' : ''}
           <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
             <div style="display:flex;justify-content:space-between"><span class="text-muted">當前瓦數</span><strong>${data.watts.toFixed(1)} W</strong></div>
             <div style="display:flex;justify-content:space-between"><span class="text-muted">估算 1h 用電</span><strong>${data.estimatedHourlyKwh.toFixed(4)} kWh</strong></div>
@@ -3294,7 +3290,6 @@ async function renderMiMonitoredDevices() {
 async function renderMiCharts() {
   const stats = await apiFetch('/api/mi-home/stats').then(r => r.json()).catch(() => ({ weekly: [], monthly: [], history: [] }));
   const textColor = document.body.classList.contains('dark') ? '#ccc' : '#555';
-
   const barCfg = (labels, data, label) => ({
     type: 'bar',
     data: { labels, datasets: [{ label, data, backgroundColor: '#1a7f6466', borderColor: '#1a7f64', borderWidth: 1.5, borderRadius: 4 }] },
@@ -3304,7 +3299,6 @@ async function renderMiCharts() {
       scales: { y: { ticks: { color: textColor }, grid: { color: textColor + '22' } }, x: { ticks: { color: textColor, maxTicksLimit: 14 } } },
     },
   });
-
   mkChart('mi-weekly-chart', barCfg(stats.weekly.map(d => d.day.slice(5)), stats.weekly.map(d => d.kwhDelta || 0), '用電 kWh'));
   mkChart('mi-monthly-chart', barCfg(stats.monthly.map(d => d.day.slice(5)), stats.monthly.map(d => d.kwhDelta || 0), '用電 kWh'));
   mkChart('mi-history-chart', {
@@ -4366,31 +4360,43 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     if (cell) showCalDayDetail(cell.dataset.calDate, _calDayMap.get(cell.dataset.calDate));
   });
 
-  // Mi Home cloud login
-  document.getElementById('mi-login-form')?.addEventListener('submit', async (e) => {
+  // Mi Home — HA config form
+  document.getElementById('mi-ha-config-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const username = document.getElementById('mi-username').value.trim();
-    const password = document.getElementById('mi-password').value;
-    const country = document.getElementById('mi-region').value;
-    const btn = document.getElementById('mi-login-btn');
+    const haUrl = document.getElementById('mi-ha-url').value.trim();
+    const haToken = document.getElementById('mi-ha-token').value.trim();
+    const btn = document.getElementById('mi-ha-save-btn');
     btn.disabled = true;
-    btn.textContent = '登入中...';
+    btn.textContent = '連線中...';
     try {
-      await apiFetch('/api/mi-home/cloud-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, country }) });
-      document.getElementById('mi-login-form').reset();
+      await apiFetch('/api/mi-home/ha-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ haUrl, haToken }) });
+      document.getElementById('mi-ha-config-form').reset();
       await loadMiHome();
     } catch (err) {
-      showStatus((err.message || '登入失敗').replace('LOGIN_FAILED: ', ''), true);
+      showStatus((err.message || '連線失敗').replace('HA_CONNECTION_FAILED: ', ''), true);
     } finally {
       btn.disabled = false;
-      btn.textContent = '登入';
+      btn.textContent = '連線';
     }
   });
-  document.getElementById('mi-logout-btn')?.addEventListener('click', async () => {
-    await apiFetch('/api/mi-home/cloud-logout', { method: 'POST' });
+  document.getElementById('mi-ha-clear-btn')?.addEventListener('click', async () => {
+    await apiFetch('/api/mi-home/ha-config', { method: 'DELETE' });
     await loadMiHome();
   });
-  document.getElementById('mi-fetch-devices-btn')?.addEventListener('click', fetchMiCloudDevices);
+  document.getElementById('mi-fetch-entities-btn')?.addEventListener('click', fetchHaEntities);
+  document.getElementById('mi-ha-add-btn')?.addEventListener('click', async () => {
+    const name = document.getElementById('mi-ha-device-name').value.trim();
+    const powerEntityId = document.getElementById('mi-ha-power-select').value;
+    const energyEntityId = document.getElementById('mi-ha-energy-select').value;
+    if (!name || !powerEntityId) { showStatus('請填入設備名稱並選擇瓦數 entity', true); return; }
+    try {
+      await apiFetch('/api/mi-home/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, powerEntityId, energyEntityId }) });
+      document.getElementById('mi-ha-device-name').value = '';
+      await loadMiHome();
+    } catch (err) {
+      showStatus(err.message || '新增失敗', true);
+    }
+  });
   document.getElementById('mi-refresh-btn')?.addEventListener('click', async () => {
     await renderMiMonitoredDevices();
     await renderMiCharts();
