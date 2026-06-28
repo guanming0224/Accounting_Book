@@ -3162,6 +3162,25 @@ async function renderMiHaStatus({ fetchEntities = state.currentView === 'mi-home
 
 let _haEntities = [];
 
+function miHaEntityClassLabel(deviceClass) {
+  if (deviceClass === 'power') return '功率';
+  if (deviceClass === 'energy') return '累計用電';
+  return deviceClass || '其他';
+}
+
+function miHaEntityGroupTitle(deviceClass, count) {
+  const label = miHaEntityClassLabel(deviceClass);
+  const unitHint = deviceClass === 'power' ? 'W' : deviceClass === 'energy' ? 'kWh' : '';
+  return `${label}${unitHint ? ` (${unitHint})` : ''} · ${count} 個`;
+}
+
+function miHaEntityOptionGroup(label, entities) {
+  if (!entities.length) return '';
+  return `<optgroup label="${escapeAttr(label)}">${
+    entities.map(e => `<option value="${escapeAttr(e.entityId)}">${escapeHtml(e.name)} (${escapeHtml(e.state)} ${escapeHtml(e.unit)})</option>`).join('')
+  }</optgroup>`;
+}
+
 async function fetchHaEntities() {
   const listEl = document.getElementById('mi-ha-entity-list');
   const powerSelect = document.getElementById('mi-ha-power-select');
@@ -3180,13 +3199,36 @@ async function fetchHaEntities() {
     if (!_haEntities.length) {
       listEl.innerHTML = '<p class="text-muted" style="font-size:13px">未找到 power / energy entity，請確認 HA 中已安裝用電監控整合</p>';
     } else {
-      listEl.innerHTML = _haEntities.map(e => `
-        <div class="row">
-          <div class="row-main">
-            <div class="row-title">${e.name}</div>
-            <div class="row-meta">${e.entityId} · ${e.state} ${e.unit} · ${e.deviceClass}</div>
+      const classOrder = ['power', 'energy'];
+      const grouped = _haEntities.reduce((acc, entity) => {
+        const key = entity.deviceClass || 'other';
+        if (!acc.has(key)) acc.set(key, []);
+        acc.get(key).push(entity);
+        return acc;
+      }, new Map());
+      const groupedEntries = [...grouped.entries()].sort(([a], [b]) => {
+        const ai = classOrder.indexOf(a);
+        const bi = classOrder.indexOf(b);
+        if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+        return a.localeCompare(b);
+      });
+
+      listEl.innerHTML = groupedEntries.map(([deviceClass, entities]) => `
+        <div class="mi-entity-group">
+          <div class="section-header" style="margin-bottom:6px">
+            <h3 style="margin:0;font-size:14px">${escapeHtml(miHaEntityGroupTitle(deviceClass, entities.length))}</h3>
           </div>
-          ${monitoredEntityIds.has(e.entityId) ? '<span class="badge" style="background:#1a7f6433;color:#1a7f64;font-size:11px">監控中</span>' : ''}
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${entities.map(e => `
+              <div class="row">
+                <div class="row-main">
+                  <div class="row-title">${escapeHtml(e.name)}</div>
+                  <div class="row-meta">${escapeHtml(e.entityId)} · ${escapeHtml(e.state)} ${escapeHtml(e.unit)} · ${escapeHtml(e.domain || 'entity')}</div>
+                </div>
+                ${monitoredEntityIds.has(e.entityId) ? '<span class="badge" style="background:#1a7f6433;color:#1a7f64;font-size:11px">監控中</span>' : ''}
+              </div>
+            `).join('')}
+          </div>
         </div>
       `).join('');
     }
@@ -3194,11 +3236,11 @@ async function fetchHaEntities() {
     // Populate add-form dropdowns
     if (powerSelect) {
       powerSelect.innerHTML = '<option value="">選擇瓦數 entity (W)</option>' +
-        powerEntities.map(e => `<option value="${e.entityId}">${e.name} (${e.state} ${e.unit})</option>`).join('');
+        miHaEntityOptionGroup('功率 (W)', powerEntities);
     }
     if (energySelect) {
       energySelect.innerHTML = '<option value="">選擇累計用電 entity (kWh)（選填）</option>' +
-        energyEntities.map(e => `<option value="${e.entityId}">${e.name} (${e.state} ${e.unit})</option>`).join('');
+        miHaEntityOptionGroup('累計用電 (kWh)', energyEntities);
     }
   } catch (err) {
     listEl.innerHTML = `<p class="text-muted" style="font-size:13px">載入失敗：${err.message}</p>`;

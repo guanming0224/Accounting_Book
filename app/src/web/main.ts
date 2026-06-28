@@ -1955,6 +1955,7 @@ async function startWebServer() {
         state: s.state,
         unit: s.attributes.unit_of_measurement || '',
         deviceClass: s.attributes.device_class,
+        domain: String(s.entity_id || '').split('.')[0] || '',
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
     res.json(entities);
