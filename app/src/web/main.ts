@@ -1964,12 +1964,12 @@ async function startWebServer() {
   app.post('/api/mi-home/devices', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
-    const { name, powerEntityId, energyEntityId } = req.body;
+    const { name, powerEntityId, energyEntityId, groupName } = req.body;
     if (!name || !powerEntityId) throw new Error('NAME_POWER_ENTITY_REQUIRED');
     const result = await db.run(
-      `INSERT INTO mi_devices (userId, name, ip, token, powerEntityId, energyEntityId)
-       VALUES (?, ?, '', '', ?, ?)`,
-      [userId, String(name), String(powerEntityId), String(energyEntityId || '')]
+      `INSERT INTO mi_devices (userId, name, ip, token, powerEntityId, energyEntityId, groupName)
+       VALUES (?, ?, '', '', ?, ?, ?)`,
+      [userId, String(name), String(powerEntityId), String(energyEntityId || ''), String(groupName || '')]
     );
     res.json(await db.get<any>('SELECT * FROM mi_devices WHERE id = ?', [result.lastID]));
   }));
@@ -1979,9 +1979,28 @@ async function startWebServer() {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     res.json(await db.all<any>(
-      'SELECT id, name, powerEntityId, energyEntityId, createdAt FROM mi_devices WHERE userId = ? ORDER BY createdAt ASC',
+      'SELECT id, name, powerEntityId, energyEntityId, groupName, createdAt FROM mi_devices WHERE userId = ? ORDER BY groupName ASC, createdAt ASC',
       [userId]
     ));
+  }));
+
+  // Update a monitored device (rename / move to another group)
+  app.patch('/api/mi-home/devices/:id', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { name, groupName } = req.body;
+    const sets: string[] = [];
+    const params: any[] = [];
+    if (name !== undefined) { sets.push('name = ?'); params.push(String(name)); }
+    if (groupName !== undefined) { sets.push('groupName = ?'); params.push(String(groupName)); }
+    if (!sets.length) { res.json({ ok: true }); return; }
+    params.push(Number(req.params.id), userId);
+    const result = await db.run(
+      `UPDATE mi_devices SET ${sets.join(', ')} WHERE id = ? AND userId = ?`,
+      params
+    );
+    if (!result.changes) throw new Error('DEVICE_NOT_FOUND');
+    res.json({ ok: true });
   }));
 
   // Delete a monitored device

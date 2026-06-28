@@ -362,6 +362,7 @@ export class Database {
         // Migration: add HA entity columns if upgrading from older schema
         this.db.run(`ALTER TABLE mi_devices ADD COLUMN powerEntityId TEXT DEFAULT ''`, () => {});
         this.db.run(`ALTER TABLE mi_devices ADD COLUMN energyEntityId TEXT DEFAULT ''`, () => {});
+        this.db.run(`ALTER TABLE mi_devices ADD COLUMN groupName TEXT DEFAULT ''`, () => {});
 
         this.db.run(`CREATE INDEX IF NOT EXISTS idx_user_subcategories_category ON user_subcategories(categoryId)`, (err) => {
           if (err) reject(err);

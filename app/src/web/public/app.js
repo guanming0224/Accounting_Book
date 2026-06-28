@@ -3205,6 +3205,30 @@ async function fetchHaEntities() {
   }
 }
 
+// Refresh the <datalist> of existing group names for the add-device form
+function updateMiGroupOptions(devices) {
+  const dl = document.getElementById('mi-group-options');
+  if (!dl) return;
+  const groups = [...new Set(devices.map(d => (d.groupName || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  dl.innerHTML = groups.map(g => `<option value="${g}"></option>`).join('');
+}
+
+// One device card shell — header (with 群組/移除 buttons) + a body placeholder updated by live data
+function miDeviceCardShell(d) {
+  const group = (d.groupName || '').trim();
+  return `
+    <div class="panel" style="flex:1;min-width:200px;padding:16px" id="mi-live-${d.id}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span style="font-weight:600">${d.name}</span>
+        <span style="display:flex;gap:6px">
+          <button class="secondary mi-move-device-btn" data-id="${d.id}" data-group="${group}" style="font-size:11px;padding:2px 8px">群組</button>
+          <button class="danger mi-remove-device-btn" data-id="${d.id}" style="font-size:11px;padding:2px 8px">移除</button>
+        </span>
+      </div>
+      <div id="mi-live-body-${d.id}" class="text-muted" style="font-size:13px">載入中...</div>
+    </div>`;
+}
+
 async function renderMiMonitoredDevices() {
   const liveEl = document.getElementById('mi-live-cards');
   const summaryPanel = document.getElementById('mi-summary-panel');
@@ -3212,22 +3236,36 @@ async function renderMiMonitoredDevices() {
   if (!liveEl) return;
 
   const devices = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
+  updateMiGroupOptions(devices);
+
   if (!devices.length) {
     liveEl.innerHTML = '<p class="text-muted" style="font-size:13px">尚無監控設備，請完成 Home Assistant 連線後從 HA Entity 清單加入</p>';
     if (summaryPanel) summaryPanel.style.display = 'none';
     return;
   }
 
-  liveEl.innerHTML = devices.map(d => `
-    <div class="panel" style="flex:1;min-width:200px;padding:16px" id="mi-live-${d.id}">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-weight:600">${d.name}</span>
-        <button class="danger mi-remove-device-btn" data-id="${d.id}" style="font-size:11px;padding:2px 8px">移除</button>
+  // Group devices by groupName (空字串 → 未分組)
+  const groups = new Map();
+  devices.forEach(d => {
+    const g = (d.groupName || '').trim() || '未分組';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(d);
+  });
+  const groupList = [...groups.entries()];
+
+  liveEl.innerHTML = groupList.map(([g, devs], gi) => `
+    <div class="mi-group" style="width:100%;margin-bottom:4px">
+      <div class="section-header" style="margin-bottom:6px">
+        <h3 style="margin:0;font-size:14px">${g} <span class="text-muted" style="font-size:12px">· ${devs.length} 台</span></h3>
+        <span class="text-muted" id="mi-group-subtotal-${gi}" style="font-size:12px">—</span>
       </div>
-      <div class="text-muted" style="font-size:13px">載入中...</div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px">
+        ${devs.map(d => miDeviceCardShell(d)).join('')}
+      </div>
     </div>
   `).join('');
 
+  // Wire remove / move buttons once (card bodies update separately, so listeners survive)
   liveEl.querySelectorAll('.mi-remove-device-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!confirm('確定移除此設備監控？')) return;
@@ -3235,21 +3273,35 @@ async function renderMiMonitoredDevices() {
       await loadMiHome();
     });
   });
+  liveEl.querySelectorAll('.mi-move-device-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const next = prompt('移動到群組（留空代表未分組）', btn.dataset.group || '');
+      if (next === null) return;
+      await apiFetch(`/api/mi-home/devices/${btn.dataset.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupName: next.trim() }),
+      });
+      await loadMiHome();
+    });
+  });
 
   let totalKwh = 0;
   let totalWatts = 0;
+  const groupTotals = new Map();
   await Promise.all(devices.map(async d => {
-    const card = document.getElementById(`mi-live-${d.id}`);
+    const g = (d.groupName || '').trim() || '未分組';
+    const body = document.getElementById(`mi-live-body-${d.id}`);
     try {
       const data = await apiFetch(`/api/mi-home/devices/${d.id}/live`).then(r => r.json());
       totalWatts += data.watts || 0;
       totalKwh += data.totalKwh || 0;
-      if (card) {
-        card.innerHTML = `
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <span style="font-weight:600">${d.name}</span>
-            <button class="danger mi-remove-device-btn" data-id="${d.id}" style="font-size:11px;padding:2px 8px">移除</button>
-          </div>
+      const gt = groupTotals.get(g) || { watts: 0, kwh: 0 };
+      gt.watts += data.watts || 0;
+      gt.kwh += data.totalKwh || 0;
+      groupTotals.set(g, gt);
+      if (body) {
+        body.classList.remove('text-muted');
+        body.innerHTML = `
           ${!data.connected ? '<div style="font-size:11px;color:#e11d48;margin-bottom:6px">HA 無法連線</div>' : ''}
           <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
             <div style="display:flex;justify-content:space-between"><span class="text-muted">當前瓦數</span><strong>${data.watts.toFixed(1)} W</strong></div>
@@ -3257,29 +3309,18 @@ async function renderMiMonitoredDevices() {
             <div style="display:flex;justify-content:space-between"><span class="text-muted">累計用電</span><strong>${data.totalKwh.toFixed(3)} kWh</strong></div>
           </div>
         `;
-        card.querySelector('.mi-remove-device-btn')?.addEventListener('click', async () => {
-          if (!confirm('確定移除此設備監控？')) return;
-          await apiFetch(`/api/mi-home/devices/${d.id}`, { method: 'DELETE' });
-          await loadMiHome();
-        });
       }
     } catch {
-      if (card) {
-        card.innerHTML = `
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <span style="font-weight:600">${d.name}</span>
-            <button class="danger mi-remove-device-btn" data-id="${d.id}" style="font-size:11px;padding:2px 8px">移除</button>
-          </div>
-          <div class="text-muted" style="font-size:13px">無法取得資料</div>
-        `;
-        card.querySelector('.mi-remove-device-btn')?.addEventListener('click', async () => {
-          if (!confirm('確定移除此設備監控？')) return;
-          await apiFetch(`/api/mi-home/devices/${d.id}`, { method: 'DELETE' });
-          await loadMiHome();
-        });
-      }
+      if (body) body.innerHTML = '無法取得資料';
     }
   }));
+
+  // Per-group subtotals
+  groupList.forEach(([g], gi) => {
+    const el = document.getElementById(`mi-group-subtotal-${gi}`);
+    const gt = groupTotals.get(g);
+    if (el) el.textContent = gt ? `合計 ${gt.watts.toFixed(1)} W · 1h 估 ${(gt.watts / 1000).toFixed(4)} kWh` : '—';
+  });
 
   if (summaryPanel && summaryEl && devices.length) {
     summaryPanel.style.display = '';
@@ -4403,10 +4444,12 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     const name = document.getElementById('mi-ha-device-name').value.trim();
     const powerEntityId = document.getElementById('mi-ha-power-select').value;
     const energyEntityId = document.getElementById('mi-ha-energy-select').value;
+    const groupName = document.getElementById('mi-ha-group-name')?.value.trim() || '';
     if (!name || !powerEntityId) { showStatus('請填入設備名稱並選擇瓦數 entity', true); return; }
     try {
-      await apiFetch('/api/mi-home/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, powerEntityId, energyEntityId }) });
+      await apiFetch('/api/mi-home/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, powerEntityId, energyEntityId, groupName }) });
       document.getElementById('mi-ha-device-name').value = '';
+      if (document.getElementById('mi-ha-group-name')) document.getElementById('mi-ha-group-name').value = '';
       await loadMiHome();
     } catch (err) {
       showStatus(err.message || '新增失敗', true);
