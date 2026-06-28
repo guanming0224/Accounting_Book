@@ -646,6 +646,34 @@ h2 {
   margin-top: 3px;
 }
 
+.mi-entity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.mi-entity-group {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: 12px;
+}
+
+.mi-entity-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.mi-entity-group .row {
+  background: var(--surface);
+}
+
 .actions {
   display: flex;
   gap: 8px;
@@ -1951,4 +1979,3 @@ button.small { padding: 4px 10px; font-size: 12px; }
 :root[data-theme="dark"] .ledger-card-actions button { font-weight: 600; }
 :root[data-theme="dark"] .ledger-card-actions button.secondary { color: var(--text); }
 :root[data-theme="dark"] .ledger-card-actions button.danger { color: #020205; }
-

@@ -3218,7 +3218,7 @@ async function fetchHaEntities() {
           <div class="section-header" style="margin-bottom:6px">
             <h3 style="margin:0;font-size:14px">${escapeHtml(miHaEntityGroupTitle(deviceClass, entities.length))}</h3>
           </div>
-          <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="mi-entity-group-list">
             ${entities.map(e => `
               <div class="row">
                 <div class="row-main">
