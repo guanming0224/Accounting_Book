@@ -3079,7 +3079,7 @@ const _viewCatMap = {
   budget: 'planning', goals: 'planning', recurring: 'planning', reminders: 'planning',
   'finance-trends': 'analysis', calendar: 'analysis', reports: 'analysis',
   splits: 'other', utility: 'other', settings: 'other',
-  'mi-home': 'apis',
+  'home-assistant-settings': 'apis', 'mi-home': 'apis',
 };
 
 function setView(view) {
@@ -3111,6 +3111,7 @@ function setView(view) {
     utility: '水電用量追蹤',
     settings: '設定',
     calendar: '記帳月曆',
+    'home-assistant-settings': 'Home Assistant 設定',
     'mi-home': '小米智慧家電',
   };
   document.querySelector('#page-title').textContent = titles[view] || view;
@@ -3126,6 +3127,7 @@ function setView(view) {
   if (view === 'utility') loadUtility();
   if (view === 'calendar') loadCalendar();
   if (view === 'finance-trends') loadFinanceTrends();
+  if (view === 'home-assistant-settings') renderMiHaStatus({ fetchEntities: false });
   if (view === 'mi-home') loadMiHome();
 }
 
@@ -3136,24 +3138,26 @@ function loadFinanceTrends() {
 
 // ── Mi Home 小米智慧家電（Home Assistant）────────────────────────────────
 async function loadMiHome() {
-  await renderMiHaStatus();
+  await renderMiHaStatus({ fetchEntities: true });
   await renderMiMonitoredDevices();
   await renderMiCharts();
 }
 
-async function renderMiHaStatus() {
+async function renderMiHaStatus({ fetchEntities = state.currentView === 'mi-home' } = {}) {
   const status = await apiFetch('/api/mi-home/ha-status').then(r => r.json()).catch(() => ({ connected: false }));
   const statusEl = document.getElementById('mi-ha-status');
   const saveBtn = document.getElementById('mi-ha-save-btn');
   const clearBtn = document.getElementById('mi-ha-clear-btn');
   const entitiesPanel = document.getElementById('mi-ha-entities-panel');
+  const setupNotice = document.getElementById('mi-ha-setup-notice');
 
   if (statusEl) statusEl.textContent = status.connected ? `已連線：${status.haUrl}` : status.haUrl ? `連線失敗：${status.haUrl}` : '未設定';
   if (saveBtn) saveBtn.style.display = status.connected ? 'none' : '';
   if (clearBtn) clearBtn.style.display = status.connected ? '' : 'none';
   if (entitiesPanel) entitiesPanel.style.display = status.connected ? '' : 'none';
+  if (setupNotice) setupNotice.style.display = status.connected ? 'none' : '';
 
-  if (status.connected) await fetchHaEntities();
+  if (status.connected && fetchEntities) await fetchHaEntities();
 }
 
 let _haEntities = [];
@@ -3209,7 +3213,7 @@ async function renderMiMonitoredDevices() {
 
   const devices = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
   if (!devices.length) {
-    liveEl.innerHTML = '<p class="text-muted" style="font-size:13px">尚無監控設備，請從上方 HA Entity 清單加入</p>';
+    liveEl.innerHTML = '<p class="text-muted" style="font-size:13px">尚無監控設備，請完成 Home Assistant 連線後從 HA Entity 清單加入</p>';
     if (summaryPanel) summaryPanel.style.display = 'none';
     return;
   }
@@ -3331,6 +3335,8 @@ async function refreshCurrentView() {
   if (state.currentView === 'utility') await loadUtility();
   if (state.currentView === 'calendar') await loadCalendar();
   if (state.currentView === 'finance-trends') loadFinanceTrends();
+  if (state.currentView === 'home-assistant-settings') await renderMiHaStatus({ fetchEntities: false });
+  if (state.currentView === 'mi-home') await loadMiHome();
 }
 
 // ── Merchant memory ───────────────────────────────────────────────────────
@@ -3411,6 +3417,13 @@ document.addEventListener('click', async (event) => {
   const nav = target.closest('.nav-button');
   if (nav) {
     setView(nav.dataset.view);
+    await refreshCurrentView();
+    return;
+  }
+
+  const viewJump = target.closest('[data-view-jump]');
+  if (viewJump) {
+    setView(viewJump.dataset.viewJump);
     await refreshCurrentView();
     return;
   }
@@ -4371,7 +4384,8 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     try {
       await apiFetch('/api/mi-home/ha-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ haUrl, haToken }) });
       document.getElementById('mi-ha-config-form').reset();
-      await loadMiHome();
+      await renderMiHaStatus({ fetchEntities: state.currentView === 'mi-home' });
+      showStatus('Home Assistant 連線設定已更新');
     } catch (err) {
       showStatus((err.message || '連線失敗').replace('HA_CONNECTION_FAILED: ', ''), true);
     } finally {
@@ -4381,7 +4395,8 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
   });
   document.getElementById('mi-ha-clear-btn')?.addEventListener('click', async () => {
     await apiFetch('/api/mi-home/ha-config', { method: 'DELETE' });
-    await loadMiHome();
+    await renderMiHaStatus({ fetchEntities: false });
+    showStatus('Home Assistant 連線設定已清除');
   });
   document.getElementById('mi-fetch-entities-btn')?.addEventListener('click', fetchHaEntities);
   document.getElementById('mi-ha-add-btn')?.addEventListener('click', async () => {

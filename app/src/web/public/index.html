@@ -51,6 +51,7 @@
         <div class="cat-item">
           <button class="cat-btn" data-cat="apis">APIs</button>
           <div class="cat-dropdown">
+            <button class="nav-button" data-view="home-assistant-settings">Home Assistant 設定</button>
             <button class="nav-button" data-view="mi-home">小米智慧家電</button>
           </div>
         </div>
@@ -781,9 +782,7 @@
         </section>
       </section>
       <!-- ── 小米智慧家電 ──────────────────────────────────────────────── -->
-      <section id="mi-home-view" class="view">
-
-        <!-- Home Assistant 連線設定 -->
+      <section id="home-assistant-settings-view" class="view">
         <section class="panel" id="mi-ha-config-panel">
           <h2>Home Assistant 連線設定</h2>
           <div id="mi-ha-status" style="margin-bottom:12px;font-size:13px" class="text-muted">未設定</div>
@@ -795,6 +794,18 @@
           </form>
           <p class="text-muted" style="font-size:12px;margin-top:8px">
             Token 取得方式：HA → 個人檔案 → 下方「長期存取權杖」→ 建立權杖
+          </p>
+        </section>
+      </section>
+
+      <section id="mi-home-view" class="view">
+        <section class="panel" id="mi-ha-setup-notice" style="display:none">
+          <div class="section-header">
+            <h2>尚未連線 Home Assistant</h2>
+            <button type="button" class="secondary" data-view-jump="home-assistant-settings">前往設定</button>
+          </div>
+          <p class="text-muted" style="font-size:13px;margin:0">
+            完成 Home Assistant 連線後，這裡會顯示可加入監控的電力 entities。
           </p>
         </section>
 
