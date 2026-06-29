@@ -796,18 +796,6 @@
             Token 取得方式：HA → 個人檔案 → 下方「長期存取權杖」→ 建立權杖
           </p>
         </section>
-      </section>
-
-      <section id="mi-home-view" class="view">
-        <section class="panel" id="mi-ha-setup-notice" style="display:none">
-          <div class="section-header">
-            <h2>尚未連線 Home Assistant</h2>
-            <button type="button" class="secondary" data-view-jump="home-assistant-settings">前往設定</button>
-          </div>
-          <p class="text-muted" style="font-size:13px;margin:0">
-            完成 Home Assistant 連線後，這裡會顯示可加入監控的電力 entities。
-          </p>
-        </section>
 
         <!-- HA 設備清單（連線後顯示） -->
         <section class="panel" id="mi-ha-entities-panel" style="display:none">
@@ -837,6 +825,19 @@
             </select>
             <button id="mi-ha-add-btn" type="button">加入監控</button>
           </div>
+        </section>
+
+      </section>
+
+      <section id="mi-home-view" class="view">
+        <section class="panel" id="mi-ha-setup-notice" style="display:none">
+          <div class="section-header">
+            <h2>尚未連線 Home Assistant</h2>
+            <button type="button" class="secondary" data-view-jump="home-assistant-settings">前往設定</button>
+          </div>
+          <p class="text-muted" style="font-size:13px;margin:0">
+            完成 Home Assistant 連線後，這裡會顯示可加入監控的電力 entities。
+          </p>
         </section>
 
         <!-- 已監控設備 -->

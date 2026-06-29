@@ -3127,7 +3127,7 @@ function setView(view) {
   if (view === 'utility') loadUtility();
   if (view === 'calendar') loadCalendar();
   if (view === 'finance-trends') loadFinanceTrends();
-  if (view === 'home-assistant-settings') renderMiHaStatus({ fetchEntities: false });
+  if (view === 'home-assistant-settings') renderMiHaStatus({ fetchEntities: true });
   if (view === 'mi-home') loadMiHome();
 }
 
@@ -3138,7 +3138,7 @@ function loadFinanceTrends() {
 
 // ── Mi Home 小米智慧家電（Home Assistant）────────────────────────────────
 async function loadMiHome() {
-  await renderMiHaStatus({ fetchEntities: true });
+  await renderMiHaStatus({ fetchEntities: false });
   await renderMiMonitoredDevices();
   await renderMiCharts();
 }
@@ -3471,7 +3471,7 @@ async function refreshCurrentView() {
   if (state.currentView === 'utility') await loadUtility();
   if (state.currentView === 'calendar') await loadCalendar();
   if (state.currentView === 'finance-trends') loadFinanceTrends();
-  if (state.currentView === 'home-assistant-settings') await renderMiHaStatus({ fetchEntities: false });
+  if (state.currentView === 'home-assistant-settings') await renderMiHaStatus({ fetchEntities: true });
   if (state.currentView === 'mi-home') await loadMiHome();
 }
 
@@ -4534,7 +4534,7 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     try {
       await apiFetch('/api/mi-home/ha-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ haUrl, haToken }) });
       document.getElementById('mi-ha-config-form').reset();
-      await renderMiHaStatus({ fetchEntities: state.currentView === 'mi-home' });
+      await renderMiHaStatus({ fetchEntities: state.currentView === 'home-assistant-settings' });
       showStatus('Home Assistant 連線設定已更新');
     } catch (err) {
       showStatus((err.message || '連線失敗').replace('HA_CONNECTION_FAILED: ', ''), true);
