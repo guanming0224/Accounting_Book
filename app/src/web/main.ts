@@ -2098,15 +2098,7 @@ async function startWebServer() {
     res.json({ ok: true });
   }));
 
-  // Fetch live data for one device from HA
-  app.get('/api/mi-home/devices/:id/live', asyncHandler(async (req, res) => {
-    if (!requireAuth(req, res)) return;
-    const userId = await resolveUserId(req);
-    const device = await db.get<any>('SELECT * FROM mi_devices WHERE id = ? AND userId = ?', [Number(req.params.id), userId]);
-    if (!device) throw new Error('DEVICE_NOT_FOUND');
-    const { haUrl, haToken } = await getHaConfig();
-    if (!haUrl || !haToken) throw new Error('HA_NOT_CONFIGURED');
-
+  async function readMiDeviceLive(device: any, haUrl: string, haToken: string) {
     let watts = 0;
     let totalKwh = 0;
     let connected = false;
@@ -2121,29 +2113,82 @@ async function startWebServer() {
       }
       connected = true;
     } catch { /* HA unreachable */ }
+    return { watts, totalKwh, estimatedHourlyKwh: parseFloat((watts / 1000).toFixed(4)), connected };
+  }
 
-    if (connected) {
-      await db.run('INSERT INTO mi_power_readings (deviceId, watts, totalKwh) VALUES (?, ?, ?)', [device.id, watts, totalKwh]);
+  async function sampleMiPowerReadings(devices: any[]) {
+    const { haUrl, haToken } = await getHaConfig();
+    if (!haUrl || !haToken) return;
+    const deviceIds = devices.map(device => device.id);
+    const placeholders = deviceIds.map(() => '?').join(',');
+    const currentMinuteRow = await db.get<any>(
+      `SELECT COUNT(DISTINCT deviceId) as sampledCount
+       FROM mi_power_readings
+       WHERE deviceId IN (${placeholders})
+         AND strftime('%Y-%m-%d %H:%M', recordedAt) = strftime('%Y-%m-%d %H:%M', 'now')`,
+      deviceIds
+    );
+    if ((currentMinuteRow?.sampledCount || 0) >= devices.length) return;
+    await Promise.all(devices.map(async device => {
+      const data = await readMiDeviceLive(device, haUrl, haToken);
+      if (!data.connected) return;
+      await db.run(
+        'INSERT INTO mi_power_readings (deviceId, watts, totalKwh) VALUES (?, ?, ?)',
+        [device.id, data.watts, data.totalKwh]
+      );
+    }));
+  }
+
+  // Fetch live data for one device from HA
+  app.get('/api/mi-home/devices/:id/live', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const device = await db.get<any>('SELECT * FROM mi_devices WHERE id = ? AND userId = ?', [Number(req.params.id), userId]);
+    if (!device) throw new Error('DEVICE_NOT_FOUND');
+    const { haUrl, haToken } = await getHaConfig();
+    if (!haUrl || !haToken) throw new Error('HA_NOT_CONFIGURED');
+
+    const data = await readMiDeviceLive(device, haUrl, haToken);
+
+    if (data.connected) {
+      await db.run('INSERT INTO mi_power_readings (deviceId, watts, totalKwh) VALUES (?, ?, ?)', [device.id, data.watts, data.totalKwh]);
     }
-    res.json({ id: device.id, name: device.name, watts, totalKwh, estimatedHourlyKwh: parseFloat((watts / 1000).toFixed(4)), connected });
+    res.json({ id: device.id, name: device.name, ...data });
   }));
 
   // Aggregate stats for charts
   app.get('/api/mi-home/stats', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
-    const deviceIds = (await db.all<any>('SELECT id FROM mi_devices WHERE userId = ?', [userId])).map((d: any) => d.id);
+    const devices = await db.all<any>('SELECT * FROM mi_devices WHERE userId = ?', [userId]);
+    const deviceIds = devices.map((d: any) => d.id);
     if (!deviceIds.length) { res.json({ instantTrend: [], weekly: [], monthly: [], history: [] }); return; }
+    await sampleMiPowerReadings(devices);
     const placeholders = deviceIds.map(() => '?').join(',');
 
     const instantTrend = await db.all<any>(
-      `SELECT strftime('%Y-%m-%d %H:%M', recordedAt) as minute,
-              ROUND(SUM(watts), 2) as watts
-       FROM mi_power_readings
-       WHERE deviceId IN (${placeholders})
-       GROUP BY minute
-       ORDER BY minute DESC
-       LIMIT 48`,
+      `WITH latest_per_device_minute AS (
+         SELECT deviceId,
+                strftime('%Y-%m-%d %H:%M', recordedAt) as minute,
+                watts,
+                ROW_NUMBER() OVER (
+                  PARTITION BY deviceId, strftime('%Y-%m-%d %H:%M', recordedAt)
+                  ORDER BY recordedAt DESC, id DESC
+                ) as rn
+         FROM mi_power_readings
+         WHERE deviceId IN (${placeholders})
+       ),
+       minute_totals AS (
+         SELECT minute, ROUND(SUM(watts), 2) as watts
+         FROM latest_per_device_minute
+         WHERE rn = 1
+         GROUP BY minute
+         ORDER BY minute DESC
+         LIMIT 48
+       )
+       SELECT minute, watts
+       FROM minute_totals
+       ORDER BY minute ASC`,
       deviceIds
     );
 
@@ -2177,7 +2222,7 @@ async function startWebServer() {
        GROUP BY day ORDER BY day ASC`,
       deviceIds
     );
-    res.json({ instantTrend: instantTrend.reverse(), weekly, monthly, history });
+    res.json({ instantTrend, weekly, monthly, history });
   }));
 
   const publicPath = path.resolve(process.cwd(), 'app/src/web/public');
