@@ -1975,13 +1975,75 @@ async function startWebServer() {
 
   app.put('/api/mi-home/ha-selected-entities', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const previousRow = await db.get<any>(`SELECT value FROM app_config WHERE key = 'ha_selected_entities'`);
+    let previousEntityIds: string[] = [];
+    try {
+      const parsed = JSON.parse(previousRow?.value || '[]');
+      previousEntityIds = Array.isArray(parsed) ? parsed.filter(id => typeof id === 'string') : [];
+    } catch {
+      previousEntityIds = [];
+    }
+
     const rawEntityIds = Array.isArray(req.body?.entityIds) ? req.body.entityIds : [];
     const entityIds = [...new Set(rawEntityIds.map((id: unknown) => String(id || '').trim()).filter(Boolean))].slice(0, 500);
+
+    const { haUrl, haToken } = await getHaConfig();
+    if (!haUrl || !haToken) throw new Error('HA_NOT_CONFIGURED');
+    const states: any[] = await haFetch('/api/states', haUrl, haToken);
+    const entityMap = new Map(states
+      .filter(s => s.attributes?.device_class === 'power' || s.attributes?.device_class === 'energy')
+      .map(s => [s.entity_id, {
+        entityId: s.entity_id,
+        name: s.attributes.friendly_name || s.entity_id,
+        deviceClass: s.attributes.device_class,
+      }])
+    );
+    const validEntityIds = entityIds.filter(id => entityMap.has(id));
+
     await db.run(
       `INSERT OR REPLACE INTO app_config (key, value, updatedAt) VALUES ('ha_selected_entities', ?, CURRENT_TIMESTAMP)`,
-      [JSON.stringify(entityIds)]
+      [JSON.stringify(validEntityIds)]
     );
-    res.json({ ok: true, entityIds });
+
+    const removedEntityIds = previousEntityIds.filter(id => !validEntityIds.includes(id));
+    if (removedEntityIds.length) {
+      const placeholders = removedEntityIds.map(() => '?').join(',');
+      await db.run(
+        `DELETE FROM mi_devices
+         WHERE userId = ?
+           AND ip = ''
+           AND token = ''
+           AND (
+             (powerEntityId IN (${placeholders}) AND COALESCE(energyEntityId, '') = '')
+             OR (energyEntityId IN (${placeholders}) AND COALESCE(powerEntityId, '') = '')
+           )`,
+        [userId, ...removedEntityIds, ...removedEntityIds]
+      );
+    }
+
+    const existingDevices = await db.all<any>(
+      `SELECT powerEntityId, energyEntityId FROM mi_devices WHERE userId = ?`,
+      [userId]
+    );
+    const monitoredEntityIds = new Set(existingDevices.flatMap(d => [d.powerEntityId, d.energyEntityId].filter(Boolean)));
+    let added = 0;
+    for (const entityId of validEntityIds) {
+      if (monitoredEntityIds.has(entityId)) continue;
+      const entity = entityMap.get(entityId);
+      if (!entity) continue;
+      const powerEntityId = entity.deviceClass === 'power' ? entity.entityId : '';
+      const energyEntityId = entity.deviceClass === 'energy' ? entity.entityId : '';
+      await db.run(
+        `INSERT INTO mi_devices (userId, name, ip, token, powerEntityId, energyEntityId, groupName)
+         VALUES (?, ?, '', '', ?, ?, ?)`,
+        [userId, String(entity.name), powerEntityId, energyEntityId, 'HA 勾選監控']
+      );
+      monitoredEntityIds.add(entityId);
+      added++;
+    }
+
+    res.json({ ok: true, entityIds: validEntityIds, added, removed: removedEntityIds.length });
   }));
 
   // Add device to monitored list (stores powerEntityId + energyEntityId)

@@ -3190,14 +3190,17 @@ function updateMiHaSelectedCount() {
 
 async function saveMiHaEntitySelection() {
   const entityIds = [...document.querySelectorAll('.mi-ha-entity-checkbox:checked')].map(input => input.value);
-  await apiFetch('/api/mi-home/ha-selected-entities', {
+  const result = await apiFetch('/api/mi-home/ha-selected-entities', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entityIds }),
-  });
-  _haSelectedEntityIds = new Set(entityIds);
+  }).then(r => r.json());
+  _haSelectedEntityIds = new Set(result.entityIds || entityIds);
   updateMiHaSelectedCount();
-  showStatus(`已保存 ${entityIds.length} 個 HA entity`);
+  await renderMiMonitoredDevices();
+  await renderMiCharts();
+  await fetchHaEntities();
+  showStatus(`已保存並監控 ${_haSelectedEntityIds.size} 個 HA entity（新增 ${result.added || 0}，移除 ${result.removed || 0}）`);
 }
 
 async function fetchHaEntities() {
