@@ -3188,6 +3188,16 @@ function updateMiHaSelectedCount() {
   if (countEl) countEl.textContent = `已選 ${checkedCount} 個`;
 }
 
+function setAllMiHaEntityCheckboxes(checked) {
+  const checkboxes = [...document.querySelectorAll('.mi-ha-entity-checkbox')];
+  if (!checkboxes.length) {
+    showStatus('目前沒有可選的 HA entity，請先重新抓取', true);
+    return;
+  }
+  checkboxes.forEach(input => { input.checked = checked; });
+  updateMiHaSelectedCount();
+}
+
 async function saveMiHaEntitySelection() {
   const entityIds = [...document.querySelectorAll('.mi-ha-entity-checkbox:checked')].map(input => input.value);
   const result = await apiFetch('/api/mi-home/ha-selected-entities', {
@@ -3540,6 +3550,20 @@ document.addEventListener('click', async (event) => {
   if (viewJump) {
     setView(viewJump.dataset.viewJump);
     await refreshCurrentView();
+    return;
+  }
+
+  if (target.id === 'mi-ha-select-all-btn') {
+    setAllMiHaEntityCheckboxes(true);
+    return;
+  }
+  if (target.id === 'mi-ha-clear-selection-btn') {
+    setAllMiHaEntityCheckboxes(false);
+    return;
+  }
+  if (target.id === 'mi-ha-save-selection-btn') {
+    try { await saveMiHaEntitySelection(); }
+    catch (err) { showStatus(err.message || '保存失敗', true); }
     return;
   }
 
@@ -4514,18 +4538,6 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     showStatus('Home Assistant 連線設定已清除');
   });
   document.getElementById('mi-fetch-entities-btn')?.addEventListener('click', fetchHaEntities);
-  document.getElementById('mi-ha-save-selection-btn')?.addEventListener('click', async () => {
-    try { await saveMiHaEntitySelection(); }
-    catch (err) { showStatus(err.message || '保存失敗', true); }
-  });
-  document.getElementById('mi-ha-select-all-btn')?.addEventListener('click', () => {
-    document.querySelectorAll('.mi-ha-entity-checkbox').forEach(input => { input.checked = true; });
-    updateMiHaSelectedCount();
-  });
-  document.getElementById('mi-ha-clear-selection-btn')?.addEventListener('click', () => {
-    document.querySelectorAll('.mi-ha-entity-checkbox').forEach(input => { input.checked = false; });
-    updateMiHaSelectedCount();
-  });
   document.getElementById('mi-ha-add-btn')?.addEventListener('click', async () => {
     const name = document.getElementById('mi-ha-device-name').value.trim();
     const powerEntityId = document.getElementById('mi-ha-power-select').value;
