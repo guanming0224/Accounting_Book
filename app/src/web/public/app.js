@@ -3188,6 +3188,19 @@ function updateMiHaSelectedCount() {
   if (countEl) countEl.textContent = `已選 ${checkedCount} 個`;
 }
 
+function miHomeApiUrl(path) {
+  const url = new URL(path, window.location.origin);
+  if (state.userId !== null) url.searchParams.set('userId', state.userId);
+  return url.toString();
+}
+
+async function miHomeJson(path, options = {}) {
+  const resp = await apiFetch(miHomeApiUrl(path), options);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || 'API_ERROR');
+  return data;
+}
+
 function setAllMiHaEntityCheckboxes(checked) {
   const checkboxes = [...document.querySelectorAll('.mi-ha-entity-checkbox')];
   if (!checkboxes.length) {
@@ -3200,16 +3213,14 @@ function setAllMiHaEntityCheckboxes(checked) {
 
 async function saveMiHaEntitySelection() {
   const entityIds = [...document.querySelectorAll('.mi-ha-entity-checkbox:checked')].map(input => input.value);
-  const result = await apiFetch('/api/mi-home/ha-selected-entities', {
+  const result = await miHomeJson('/api/mi-home/ha-selected-entities', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entityIds }),
-  }).then(r => r.json());
+  });
   _haSelectedEntityIds = new Set(result.entityIds || entityIds);
   updateMiHaSelectedCount();
-  await renderMiMonitoredDevices();
-  await renderMiCharts();
-  await fetchHaEntities();
+  await loadMiHome();
   showStatus(`已保存並監控 ${_haSelectedEntityIds.size} 個 HA entity（新增 ${result.added || 0}，移除 ${result.removed || 0}）`);
 }
 
@@ -3222,12 +3233,12 @@ async function fetchHaEntities() {
   listEl.innerHTML = '<p class="text-muted" style="font-size:13px">載入中...</p>';
   try {
     const [entities, savedSelection] = await Promise.all([
-      apiFetch('/api/mi-home/ha-entities').then(r => r.json()),
-      apiFetch('/api/mi-home/ha-selected-entities').then(r => r.json()).catch(() => ({ entityIds: [] })),
+      miHomeJson('/api/mi-home/ha-entities'),
+      miHomeJson('/api/mi-home/ha-selected-entities').catch(() => ({ entityIds: [] })),
     ]);
     _haEntities = entities;
     _haSelectedEntityIds = new Set(Array.isArray(savedSelection.entityIds) ? savedSelection.entityIds : []);
-    const monitored = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
+    const monitored = await miHomeJson('/api/mi-home/devices').catch(() => []);
     const monitoredEntityIds = new Set(monitored.flatMap(d => [d.powerEntityId, d.energyEntityId].filter(Boolean)));
 
     const powerEntities = _haEntities.filter(e => e.deviceClass === 'power');
@@ -3319,7 +3330,7 @@ async function renderMiMonitoredDevices() {
   const summaryEl = document.getElementById('mi-summary-content');
   if (!liveEl) return;
 
-  const devices = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
+  const devices = await miHomeJson('/api/mi-home/devices').catch(() => []);
   updateMiGroupOptions(devices);
 
   if (!devices.length) {
@@ -3353,7 +3364,7 @@ async function renderMiMonitoredDevices() {
   liveEl.querySelectorAll('.mi-remove-device-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!confirm('確定移除此設備監控？')) return;
-      await apiFetch(`/api/mi-home/devices/${btn.dataset.id}`, { method: 'DELETE' });
+      await miHomeJson(`/api/mi-home/devices/${btn.dataset.id}`, { method: 'DELETE' });
       await loadMiHome();
     });
   });
@@ -4545,7 +4556,7 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     const groupName = document.getElementById('mi-ha-group-name')?.value.trim() || '';
     if (!name || !powerEntityId) { showStatus('請填入設備名稱並選擇瓦數 entity', true); return; }
     try {
-      await apiFetch('/api/mi-home/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, powerEntityId, energyEntityId, groupName }) });
+      await miHomeJson('/api/mi-home/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, powerEntityId, energyEntityId, groupName }) });
       document.getElementById('mi-ha-device-name').value = '';
       if (document.getElementById('mi-ha-group-name')) document.getElementById('mi-ha-group-name').value = '';
       await loadMiHome();
