@@ -818,6 +818,12 @@
           <p class="text-muted" style="font-size:12px;margin-bottom:10px">
             選擇每台設備的「瓦數 entity」和「累計 kWh entity」後加入監控
           </p>
+          <div class="mi-entity-toolbar">
+            <span id="mi-ha-selected-count" class="text-muted">已選 0 個</span>
+            <button id="mi-ha-select-all-btn" type="button" class="secondary">全選</button>
+            <button id="mi-ha-clear-selection-btn" type="button" class="secondary">清除選擇</button>
+            <button id="mi-ha-save-selection-btn" type="button">保存選擇</button>
+          </div>
           <div id="mi-ha-entity-list" class="mi-entity-grid"></div>
           <div id="mi-ha-add-form" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
             <input id="mi-ha-device-name" type="text" placeholder="設備名稱" maxlength="40" style="flex:1;min-width:140px" />

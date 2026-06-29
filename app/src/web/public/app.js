@@ -3161,6 +3161,7 @@ async function renderMiHaStatus({ fetchEntities = state.currentView === 'mi-home
 }
 
 let _haEntities = [];
+let _haSelectedEntityIds = new Set();
 
 function miHaEntityClassLabel(deviceClass) {
   if (deviceClass === 'power') return '功率';
@@ -3181,6 +3182,24 @@ function miHaEntityOptionGroup(label, entities) {
   }</optgroup>`;
 }
 
+function updateMiHaSelectedCount() {
+  const countEl = document.getElementById('mi-ha-selected-count');
+  const checkedCount = document.querySelectorAll('.mi-ha-entity-checkbox:checked').length;
+  if (countEl) countEl.textContent = `已選 ${checkedCount} 個`;
+}
+
+async function saveMiHaEntitySelection() {
+  const entityIds = [...document.querySelectorAll('.mi-ha-entity-checkbox:checked')].map(input => input.value);
+  await apiFetch('/api/mi-home/ha-selected-entities', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entityIds }),
+  });
+  _haSelectedEntityIds = new Set(entityIds);
+  updateMiHaSelectedCount();
+  showStatus(`已保存 ${entityIds.length} 個 HA entity`);
+}
+
 async function fetchHaEntities() {
   const listEl = document.getElementById('mi-ha-entity-list');
   const powerSelect = document.getElementById('mi-ha-power-select');
@@ -3189,7 +3208,12 @@ async function fetchHaEntities() {
 
   listEl.innerHTML = '<p class="text-muted" style="font-size:13px">載入中...</p>';
   try {
-    _haEntities = await apiFetch('/api/mi-home/ha-entities').then(r => r.json());
+    const [entities, savedSelection] = await Promise.all([
+      apiFetch('/api/mi-home/ha-entities').then(r => r.json()),
+      apiFetch('/api/mi-home/ha-selected-entities').then(r => r.json()).catch(() => ({ entityIds: [] })),
+    ]);
+    _haEntities = entities;
+    _haSelectedEntityIds = new Set(Array.isArray(savedSelection.entityIds) ? savedSelection.entityIds : []);
     const monitored = await apiFetch('/api/mi-home/devices').then(r => r.json()).catch(() => []);
     const monitoredEntityIds = new Set(monitored.flatMap(d => [d.powerEntityId, d.energyEntityId].filter(Boolean)));
 
@@ -3220,18 +3244,23 @@ async function fetchHaEntities() {
           </div>
           <div class="mi-entity-group-list">
             ${entities.map(e => `
-              <div class="row">
+              <label class="row mi-entity-row">
+                <input class="mi-ha-entity-checkbox" type="checkbox" value="${escapeAttr(e.entityId)}" ${_haSelectedEntityIds.has(e.entityId) ? 'checked' : ''} />
                 <div class="row-main">
                   <div class="row-title">${escapeHtml(e.name)}</div>
                   <div class="row-meta">${escapeHtml(e.entityId)} · ${escapeHtml(e.state)} ${escapeHtml(e.unit)} · ${escapeHtml(e.domain || 'entity')}</div>
                 </div>
                 ${monitoredEntityIds.has(e.entityId) ? '<span class="badge" style="background:#1a7f6433;color:#1a7f64;font-size:11px">監控中</span>' : ''}
-              </div>
+              </label>
             `).join('')}
           </div>
         </div>
       `).join('');
+      listEl.querySelectorAll('.mi-ha-entity-checkbox').forEach(input => {
+        input.addEventListener('change', updateMiHaSelectedCount);
+      });
     }
+    updateMiHaSelectedCount();
 
     // Populate add-form dropdowns
     if (powerSelect) {
@@ -4482,6 +4511,18 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     showStatus('Home Assistant 連線設定已清除');
   });
   document.getElementById('mi-fetch-entities-btn')?.addEventListener('click', fetchHaEntities);
+  document.getElementById('mi-ha-save-selection-btn')?.addEventListener('click', async () => {
+    try { await saveMiHaEntitySelection(); }
+    catch (err) { showStatus(err.message || '保存失敗', true); }
+  });
+  document.getElementById('mi-ha-select-all-btn')?.addEventListener('click', () => {
+    document.querySelectorAll('.mi-ha-entity-checkbox').forEach(input => { input.checked = true; });
+    updateMiHaSelectedCount();
+  });
+  document.getElementById('mi-ha-clear-selection-btn')?.addEventListener('click', () => {
+    document.querySelectorAll('.mi-ha-entity-checkbox').forEach(input => { input.checked = false; });
+    updateMiHaSelectedCount();
+  });
   document.getElementById('mi-ha-add-btn')?.addEventListener('click', async () => {
     const name = document.getElementById('mi-ha-device-name').value.trim();
     const powerEntityId = document.getElementById('mi-ha-power-select').value;

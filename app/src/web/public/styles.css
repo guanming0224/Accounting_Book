@@ -653,6 +653,19 @@ h2 {
   align-items: start;
 }
 
+.mi-entity-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.mi-entity-toolbar #mi-ha-selected-count {
+  margin-right: auto;
+  font-size: 13px;
+}
+
 .mi-entity-group {
   min-width: 0;
   border: 1px solid var(--line);
@@ -672,6 +685,21 @@ h2 {
 
 .mi-entity-group .row {
   background: var(--surface);
+}
+
+.mi-entity-row {
+  cursor: pointer;
+  align-items: flex-start;
+}
+
+.mi-entity-row input[type="checkbox"] {
+  flex: 0 0 auto;
+  min-height: auto;
+  margin-top: 4px;
+}
+
+.mi-entity-row .row-main {
+  flex: 1 1 auto;
 }
 
 .actions {

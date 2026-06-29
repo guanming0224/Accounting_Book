@@ -1937,7 +1937,7 @@ async function startWebServer() {
   // Clear HA config
   app.delete('/api/mi-home/ha-config', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
-    await db.run(`DELETE FROM app_config WHERE key IN ('ha_url', 'ha_token')`);
+    await db.run(`DELETE FROM app_config WHERE key IN ('ha_url', 'ha_token', 'ha_selected_entities')`);
     res.json({ ok: true });
   }));
 
@@ -1959,6 +1959,29 @@ async function startWebServer() {
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
     res.json(entities);
+  }));
+
+  // Persist selected HA power/energy entities for the entity picker UI
+  app.get('/api/mi-home/ha-selected-entities', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const row = await db.get<any>(`SELECT value FROM app_config WHERE key = 'ha_selected_entities'`);
+    try {
+      const entityIds = JSON.parse(row?.value || '[]');
+      res.json({ entityIds: Array.isArray(entityIds) ? entityIds.filter(id => typeof id === 'string') : [] });
+    } catch {
+      res.json({ entityIds: [] });
+    }
+  }));
+
+  app.put('/api/mi-home/ha-selected-entities', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const rawEntityIds = Array.isArray(req.body?.entityIds) ? req.body.entityIds : [];
+    const entityIds = [...new Set(rawEntityIds.map((id: unknown) => String(id || '').trim()).filter(Boolean))].slice(0, 500);
+    await db.run(
+      `INSERT OR REPLACE INTO app_config (key, value, updatedAt) VALUES ('ha_selected_entities', ?, CURRENT_TIMESTAMP)`,
+      [JSON.stringify(entityIds)]
+    );
+    res.json({ ok: true, entityIds });
   }));
 
   // Add device to monitored list (stores powerEntityId + energyEntityId)
