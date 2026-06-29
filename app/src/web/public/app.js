@@ -3438,10 +3438,18 @@ function updateMiVizPanel() {
 function renderMiInstantChart(points) {
   const box = document.getElementById('mi-box-instant');
   const canvas = document.getElementById('mi-instant-chart');
+  const empty = document.getElementById('mi-instant-empty');
   if (!box || !canvas) return;
   const rows = points || [];
-  if (!rows.length) { box.style.display = 'none'; updateMiVizPanel(); return; }
   box.style.display = '';
+  if (!rows.length) {
+    if (empty) empty.style.display = '';
+    canvas.parentElement.style.display = 'none';
+    updateMiVizPanel();
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  canvas.parentElement.style.display = '';
   const textColor = document.body.classList.contains('dark') ? '#ccc' : '#555';
   mkChart('mi-instant-chart', {
     type: 'line',
@@ -3470,12 +3478,13 @@ function renderMiInstantChart(points) {
 async function renderMiCharts() {
   const stats = await miHomeJson('/api/mi-home/stats').catch(() => ({ instantTrend: [], weekly: [], monthly: [], history: [] }));
   const toggleBox = (id, show) => { const el = document.getElementById(id); if (el) el.style.display = show ? '' : 'none'; };
-  toggleBox('mi-box-instant', (stats.instantTrend || []).length);
+  toggleBox('mi-box-instant', true);
   toggleBox('mi-box-weekly', (stats.weekly || []).length);
   toggleBox('mi-box-monthly', (stats.monthly || []).length);
   toggleBox('mi-box-history', (stats.history || []).length);
   updateMiVizPanel();
-  if (!((stats.instantTrend || []).length || (stats.weekly || []).length || (stats.monthly || []).length || (stats.history || []).length)) return;
+  renderMiInstantChart(stats.instantTrend || []);
+  if (!((stats.weekly || []).length || (stats.monthly || []).length || (stats.history || []).length)) return;
   const textColor = document.body.classList.contains('dark') ? '#ccc' : '#555';
   const barCfg = (labels, data, label) => ({
     type: 'bar',
@@ -3487,7 +3496,6 @@ async function renderMiCharts() {
       scales: { y: { ticks: { color: textColor }, grid: { color: textColor + '22' } }, x: { ticks: { color: textColor, maxTicksLimit: 14 } } },
     },
   });
-  if ((stats.instantTrend || []).length) renderMiInstantChart(stats.instantTrend);
   if ((stats.weekly || []).length) mkChart('mi-weekly-chart', barCfg(stats.weekly.map(d => d.day.slice(5)), stats.weekly.map(d => d.kwhDelta || 0), '用電 kWh'));
   if ((stats.monthly || []).length) mkChart('mi-monthly-chart', barCfg(stats.monthly.map(d => d.day.slice(5)), stats.monthly.map(d => d.kwhDelta || 0), '用電 kWh'));
   if ((stats.history || []).length) mkChart('mi-history-chart', {
