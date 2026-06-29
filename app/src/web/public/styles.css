@@ -692,6 +692,35 @@ h2 {
   align-items: flex-start;
 }
 
+.mi-chart-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.mi-chart-box {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: 10px 12px;
+}
+
+.mi-chart-title {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.mi-chart-canvas-wrap {
+  position: relative;
+  height: 190px;
+}
+
+@media (max-width: 760px) {
+  .mi-chart-grid { grid-template-columns: 1fr; }
+}
+
 .mi-entity-row input[type="checkbox"] {
   flex: 0 0 auto;
   min-height: auto;

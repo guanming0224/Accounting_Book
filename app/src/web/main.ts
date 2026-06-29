@@ -2133,8 +2133,19 @@ async function startWebServer() {
     if (!requireAuth(req, res)) return;
     const userId = await resolveUserId(req);
     const deviceIds = (await db.all<any>('SELECT id FROM mi_devices WHERE userId = ?', [userId])).map((d: any) => d.id);
-    if (!deviceIds.length) { res.json({ weekly: [], monthly: [], history: [] }); return; }
+    if (!deviceIds.length) { res.json({ instantTrend: [], weekly: [], monthly: [], history: [] }); return; }
     const placeholders = deviceIds.map(() => '?').join(',');
+
+    const instantTrend = await db.all<any>(
+      `SELECT strftime('%Y-%m-%d %H:%M', recordedAt) as minute,
+              ROUND(SUM(watts), 2) as watts
+       FROM mi_power_readings
+       WHERE deviceId IN (${placeholders})
+       GROUP BY minute
+       ORDER BY minute DESC
+       LIMIT 48`,
+      deviceIds
+    );
 
     const weekly = await db.all<any>(
       `SELECT strftime('%Y-%m-%d', recordedAt) as day,
@@ -2166,7 +2177,7 @@ async function startWebServer() {
        GROUP BY day ORDER BY day ASC`,
       deviceIds
     );
-    res.json({ weekly, monthly, history });
+    res.json({ instantTrend: instantTrend.reverse(), weekly, monthly, history });
   }));
 
   const publicPath = path.resolve(process.cwd(), 'app/src/web/public');

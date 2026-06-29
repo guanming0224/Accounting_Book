@@ -3427,21 +3427,70 @@ async function renderMiMonitoredDevices() {
   }
 }
 
+function updateMiVizPanel() {
+  const panel = document.getElementById('mi-viz-panel');
+  if (!panel) return;
+  const anyVisible = ['mi-box-instant', 'mi-box-weekly', 'mi-box-monthly', 'mi-box-history']
+    .some(id => { const el = document.getElementById(id); return el && el.style.display !== 'none'; });
+  panel.style.display = anyVisible ? '' : 'none';
+}
+
+function renderMiInstantChart(points) {
+  const box = document.getElementById('mi-box-instant');
+  const canvas = document.getElementById('mi-instant-chart');
+  if (!box || !canvas) return;
+  const rows = points || [];
+  if (!rows.length) { box.style.display = 'none'; updateMiVizPanel(); return; }
+  box.style.display = '';
+  const textColor = document.body.classList.contains('dark') ? '#ccc' : '#555';
+  mkChart('mi-instant-chart', {
+    type: 'line',
+    data: {
+      labels: rows.map(r => String(r.minute || '').slice(11) || r.minute),
+      datasets: [{
+        label: '總功率 (W)',
+        data: rows.map(r => Number(r.watts || 0)),
+        borderColor: '#1a7f64',
+        backgroundColor: '#1a7f6422',
+        fill: true,
+        tension: 0.35,
+        pointRadius: rows.length > 24 ? 0 : 2,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} W` } } },
+      scales: { y: { beginAtZero: true, ticks: { color: textColor }, grid: { color: textColor + '22' } }, x: { ticks: { color: textColor, maxTicksLimit: 16 } } },
+    },
+  });
+  updateMiVizPanel();
+}
+
 async function renderMiCharts() {
-  const stats = await apiFetch('/api/mi-home/stats').then(r => r.json()).catch(() => ({ weekly: [], monthly: [], history: [] }));
+  const stats = await miHomeJson('/api/mi-home/stats').catch(() => ({ instantTrend: [], weekly: [], monthly: [], history: [] }));
+  const toggleBox = (id, show) => { const el = document.getElementById(id); if (el) el.style.display = show ? '' : 'none'; };
+  toggleBox('mi-box-instant', (stats.instantTrend || []).length);
+  toggleBox('mi-box-weekly', (stats.weekly || []).length);
+  toggleBox('mi-box-monthly', (stats.monthly || []).length);
+  toggleBox('mi-box-history', (stats.history || []).length);
+  updateMiVizPanel();
+  if (!((stats.instantTrend || []).length || (stats.weekly || []).length || (stats.monthly || []).length || (stats.history || []).length)) return;
   const textColor = document.body.classList.contains('dark') ? '#ccc' : '#555';
   const barCfg = (labels, data, label) => ({
     type: 'bar',
     data: { labels, datasets: [{ label, data, backgroundColor: '#1a7f6466', borderColor: '#1a7f64', borderWidth: 1.5, borderRadius: 4 }] },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} kWh` } } },
       scales: { y: { ticks: { color: textColor }, grid: { color: textColor + '22' } }, x: { ticks: { color: textColor, maxTicksLimit: 14 } } },
     },
   });
-  mkChart('mi-weekly-chart', barCfg(stats.weekly.map(d => d.day.slice(5)), stats.weekly.map(d => d.kwhDelta || 0), '用電 kWh'));
-  mkChart('mi-monthly-chart', barCfg(stats.monthly.map(d => d.day.slice(5)), stats.monthly.map(d => d.kwhDelta || 0), '用電 kWh'));
-  mkChart('mi-history-chart', {
+  if ((stats.instantTrend || []).length) renderMiInstantChart(stats.instantTrend);
+  if ((stats.weekly || []).length) mkChart('mi-weekly-chart', barCfg(stats.weekly.map(d => d.day.slice(5)), stats.weekly.map(d => d.kwhDelta || 0), '用電 kWh'));
+  if ((stats.monthly || []).length) mkChart('mi-monthly-chart', barCfg(stats.monthly.map(d => d.day.slice(5)), stats.monthly.map(d => d.kwhDelta || 0), '用電 kWh'));
+  if ((stats.history || []).length) mkChart('mi-history-chart', {
     type: 'line',
     data: {
       labels: stats.history.map(d => d.day.slice(5)),
@@ -3449,6 +3498,7 @@ async function renderMiCharts() {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       plugins: { legend: { labels: { color: textColor, font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => `${ctx.raw} W` } } },
       scales: { y: { ticks: { color: textColor }, grid: { color: textColor + '22' } }, x: { ticks: { color: textColor, maxTicksLimit: 20 } } },
     },

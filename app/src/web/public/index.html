@@ -863,22 +863,30 @@
           <div id="mi-summary-content" style="display:flex;gap:24px;flex-wrap:wrap;margin-top:8px"></div>
         </section>
 
-        <!-- 當周趨勢 -->
-        <section class="panel">
-          <div class="section-header"><h2>當周每日用電 (kWh)</h2></div>
-          <canvas id="mi-weekly-chart" height="160"></canvas>
-        </section>
-
-        <!-- 當月趨勢 -->
-        <section class="panel">
-          <div class="section-header"><h2>當月每日用電 (kWh)</h2></div>
-          <canvas id="mi-monthly-chart" height="160"></canvas>
-        </section>
-
-        <!-- 歷史趨勢 -->
-        <section class="panel">
-          <div class="section-header"><h2>歷史每日用電趨勢 (近 90 天)</h2></div>
-          <canvas id="mi-history-chart" height="160"></canvas>
+        <!-- 用電視覺化 -->
+        <section class="panel" id="mi-viz-panel" style="display:none">
+          <div class="section-header"><h2>用電視覺化</h2></div>
+          <p class="text-muted" style="font-size:12px;margin:0 0 12px">
+            即時趨勢與歷史統計依每次「更新數據」當下取樣累積。
+          </p>
+          <div class="mi-chart-grid">
+            <div class="mi-chart-box" id="mi-box-instant" style="display:none">
+              <div class="mi-chart-title">即時用電趨勢 (W)</div>
+              <div class="mi-chart-canvas-wrap"><canvas id="mi-instant-chart"></canvas></div>
+            </div>
+            <div class="mi-chart-box" id="mi-box-weekly" style="display:none">
+              <div class="mi-chart-title">當周每日用電 (kWh)</div>
+              <div class="mi-chart-canvas-wrap"><canvas id="mi-weekly-chart"></canvas></div>
+            </div>
+            <div class="mi-chart-box" id="mi-box-monthly" style="display:none">
+              <div class="mi-chart-title">當月每日用電 (kWh)</div>
+              <div class="mi-chart-canvas-wrap"><canvas id="mi-monthly-chart"></canvas></div>
+            </div>
+            <div class="mi-chart-box" id="mi-box-history" style="display:none">
+              <div class="mi-chart-title">歷史每日用電趨勢 (近 90 天)</div>
+              <div class="mi-chart-canvas-wrap"><canvas id="mi-history-chart"></canvas></div>
+            </div>
+          </div>
         </section>
       </section>
     </main>
