@@ -813,18 +813,24 @@
             <button id="mi-ha-save-selection-btn" type="button">保存並監控</button>
           </div>
           <div id="mi-ha-entity-list" class="mi-entity-grid"></div>
-          <div id="mi-ha-add-form" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-            <input id="mi-ha-device-name" type="text" placeholder="設備名稱" maxlength="40" style="flex:1;min-width:140px" />
-            <input id="mi-ha-group-name" type="text" list="mi-group-options" placeholder="群組（如 客廳，選填）" maxlength="40" style="flex:1;min-width:140px" />
-            <datalist id="mi-group-options"></datalist>
-            <select id="mi-ha-power-select" style="flex:2;min-width:200px">
-              <option value="">選擇瓦數 entity (W)</option>
-            </select>
-            <select id="mi-ha-energy-select" style="flex:2;min-width:200px">
-              <option value="">選擇累計用電 entity (kWh)（選填）</option>
-            </select>
-            <button id="mi-ha-add-btn" type="button">加入監控</button>
-          </div>
+          <details style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+            <summary style="cursor:pointer;font-weight:600;font-size:14px">進階：自訂監控設備</summary>
+            <p class="text-muted" style="font-size:12px;margin:8px 0 10px">
+              一般情況直接使用上方 entity 選擇流程。只有需要自訂名稱、群組，或配對累計 kWh entity 時才使用這裡。
+            </p>
+            <div id="mi-ha-add-form" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+              <input id="mi-ha-device-name" type="text" placeholder="設備名稱" maxlength="40" style="flex:1;min-width:140px" />
+              <input id="mi-ha-group-name" type="text" list="mi-group-options" placeholder="群組（如 客廳，選填）" maxlength="40" style="flex:1;min-width:140px" />
+              <datalist id="mi-group-options"></datalist>
+              <select id="mi-ha-power-select" style="flex:2;min-width:200px">
+                <option value="">選擇瓦數 entity (W)</option>
+              </select>
+              <select id="mi-ha-energy-select" style="flex:2;min-width:200px">
+                <option value="">選擇累計用電 entity (kWh)（選填）</option>
+              </select>
+              <button id="mi-ha-add-btn" type="button">加入監控</button>
+            </div>
+          </details>
         </section>
 
       </section>
