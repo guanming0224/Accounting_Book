@@ -45,6 +45,8 @@ function chartDefaults() {
 
 // ── Search ────────────────────────────────────────────────────────────────
 let _searchTimer = null;
+let _miHomeAutoRefreshTimer = null;
+let _miHomeAutoRefreshInFlight = false;
 
 function openSearch() {
   const overlay = document.getElementById('search-overlay');
@@ -3127,6 +3129,7 @@ function setView(view) {
   if (view === 'utility') loadUtility();
   if (view === 'calendar') loadCalendar();
   if (view === 'finance-trends') loadFinanceTrends();
+  if (view !== 'mi-home') stopMiHomeAutoRefresh();
   if (view === 'home-assistant-settings') renderMiHaStatus({ fetchEntities: true });
   if (view === 'mi-home') loadMiHome();
 }
@@ -3138,9 +3141,34 @@ function loadFinanceTrends() {
 
 // ── Mi Home 小米智慧家電（Home Assistant）────────────────────────────────
 async function loadMiHome() {
+  await refreshMiHomeData();
+  startMiHomeAutoRefresh();
+}
+
+async function refreshMiHomeData() {
   await renderMiHaStatus({ fetchEntities: false });
   await renderMiMonitoredDevices();
   await renderMiCharts();
+}
+
+function startMiHomeAutoRefresh() {
+  stopMiHomeAutoRefresh();
+  _miHomeAutoRefreshTimer = window.setInterval(async () => {
+    if (state.currentView !== 'mi-home' || _miHomeAutoRefreshInFlight) return;
+    _miHomeAutoRefreshInFlight = true;
+    try {
+      await refreshMiHomeData();
+    } finally {
+      _miHomeAutoRefreshInFlight = false;
+    }
+  }, 1000);
+}
+
+function stopMiHomeAutoRefresh() {
+  if (!_miHomeAutoRefreshTimer) return;
+  window.clearInterval(_miHomeAutoRefreshTimer);
+  _miHomeAutoRefreshTimer = null;
+  _miHomeAutoRefreshInFlight = false;
 }
 
 async function renderMiHaStatus({ fetchEntities = state.currentView === 'mi-home' } = {}) {
@@ -4623,8 +4651,7 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     }
   });
   document.getElementById('mi-refresh-btn')?.addEventListener('click', async () => {
-    await renderMiMonitoredDevices();
-    await renderMiCharts();
+    await refreshMiHomeData();
   });
 
   if ('serviceWorker' in navigator) {

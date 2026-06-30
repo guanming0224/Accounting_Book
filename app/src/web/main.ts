@@ -2121,14 +2121,14 @@ async function startWebServer() {
     if (!haUrl || !haToken) return;
     const deviceIds = devices.map(device => device.id);
     const placeholders = deviceIds.map(() => '?').join(',');
-    const currentMinuteRow = await db.get<any>(
+    const currentSecondRow = await db.get<any>(
       `SELECT COUNT(DISTINCT deviceId) as sampledCount
        FROM mi_power_readings
        WHERE deviceId IN (${placeholders})
-         AND strftime('%Y-%m-%d %H:%M', recordedAt) = strftime('%Y-%m-%d %H:%M', 'now')`,
+         AND strftime('%Y-%m-%d %H:%M:%S', recordedAt) = strftime('%Y-%m-%d %H:%M:%S', 'now')`,
       deviceIds
     );
-    if ((currentMinuteRow?.sampledCount || 0) >= devices.length) return;
+    if ((currentSecondRow?.sampledCount || 0) >= devices.length) return;
     await Promise.all(devices.map(async device => {
       const data = await readMiDeviceLive(device, haUrl, haToken);
       if (!data.connected) return;
@@ -2167,28 +2167,28 @@ async function startWebServer() {
     const placeholders = deviceIds.map(() => '?').join(',');
 
     const instantTrend = await db.all<any>(
-      `WITH latest_per_device_minute AS (
+      `WITH latest_per_device_second AS (
          SELECT deviceId,
-                strftime('%Y-%m-%d %H:%M', recordedAt) as minute,
+                strftime('%Y-%m-%d %H:%M:%S', recordedAt) as second,
                 watts,
                 ROW_NUMBER() OVER (
-                  PARTITION BY deviceId, strftime('%Y-%m-%d %H:%M', recordedAt)
+                  PARTITION BY deviceId, strftime('%Y-%m-%d %H:%M:%S', recordedAt)
                   ORDER BY recordedAt DESC, id DESC
                 ) as rn
          FROM mi_power_readings
          WHERE deviceId IN (${placeholders})
        ),
-       minute_totals AS (
-         SELECT minute, ROUND(SUM(watts), 2) as watts
-         FROM latest_per_device_minute
+       second_totals AS (
+         SELECT second, ROUND(SUM(watts), 2) as watts
+         FROM latest_per_device_second
          WHERE rn = 1
-         GROUP BY minute
-         ORDER BY minute DESC
+         GROUP BY second
+         ORDER BY second DESC
          LIMIT 48
        )
-       SELECT minute, watts
-       FROM minute_totals
-       ORDER BY minute ASC`,
+       SELECT second as minute, watts
+       FROM second_totals
+       ORDER BY second ASC`,
       deviceIds
     );
 
