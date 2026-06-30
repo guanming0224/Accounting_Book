@@ -3141,14 +3141,14 @@ function loadFinanceTrends() {
 
 // ── Mi Home 小米智慧家電（Home Assistant）────────────────────────────────
 async function loadMiHome() {
-  await refreshMiHomeData();
+  await refreshMiHomeData({ forceRebuild: true });
   startMiHomeAutoRefresh();
 }
 
-async function refreshMiHomeData() {
+async function refreshMiHomeData({ forceRebuild = false, refreshHistoryCharts = true } = {}) {
   await renderMiHaStatus({ fetchEntities: false });
-  await renderMiMonitoredDevices();
-  await renderMiCharts();
+  await renderMiMonitoredDevices({ forceRebuild });
+  await renderMiCharts({ refreshHistoryCharts });
 }
 
 function startMiHomeAutoRefresh() {
@@ -3157,7 +3157,7 @@ function startMiHomeAutoRefresh() {
     if (state.currentView !== 'mi-home' || _miHomeAutoRefreshInFlight) return;
     _miHomeAutoRefreshInFlight = true;
     try {
-      await refreshMiHomeData();
+      await refreshMiHomeData({ refreshHistoryCharts: false });
     } finally {
       _miHomeAutoRefreshInFlight = false;
     }
@@ -3352,7 +3352,7 @@ function miDeviceCardShell(d) {
     </div>`;
 }
 
-async function renderMiMonitoredDevices() {
+async function renderMiMonitoredDevices({ forceRebuild = false } = {}) {
   const liveEl = document.getElementById('mi-live-cards');
   const summaryPanel = document.getElementById('mi-summary-panel');
   const summaryEl = document.getElementById('mi-summary-content');
@@ -3362,7 +3362,10 @@ async function renderMiMonitoredDevices() {
   updateMiGroupOptions(devices);
 
   if (!devices.length) {
-    liveEl.innerHTML = '<p class="text-muted" style="font-size:13px">尚無監控設備，請完成 Home Assistant 連線後從 HA Entity 清單加入</p>';
+    if (forceRebuild || liveEl.dataset.miDeviceSignature !== 'empty') {
+      liveEl.innerHTML = '<p class="text-muted" style="font-size:13px">尚無監控設備，請完成 Home Assistant 連線後從 HA Entity 清單加入</p>';
+      liveEl.dataset.miDeviceSignature = 'empty';
+    }
     if (summaryPanel) summaryPanel.style.display = 'none';
     return;
   }
@@ -3376,37 +3379,41 @@ async function renderMiMonitoredDevices() {
   });
   const groupList = [...groups.entries()];
 
-  liveEl.innerHTML = groupList.map(([g, devs], gi) => `
-    <div class="mi-group" style="width:100%;margin-bottom:4px">
-      <div class="section-header" style="margin-bottom:6px">
-        <h3 style="margin:0;font-size:14px">${g} <span class="text-muted" style="font-size:12px">· ${devs.length} 台</span></h3>
-        <span class="text-muted" id="mi-group-subtotal-${gi}" style="font-size:12px">—</span>
+  const signature = JSON.stringify(groupList.map(([g, devs]) => [g, devs.map(d => [d.id, d.name, d.groupName || ''])]));
+  if (forceRebuild || liveEl.dataset.miDeviceSignature !== signature) {
+    liveEl.innerHTML = groupList.map(([g, devs], gi) => `
+      <div class="mi-group" style="width:100%;margin-bottom:4px">
+        <div class="section-header" style="margin-bottom:6px">
+          <h3 style="margin:0;font-size:14px">${g} <span class="text-muted" style="font-size:12px">· ${devs.length} 台</span></h3>
+          <span class="text-muted" id="mi-group-subtotal-${gi}" style="font-size:12px">—</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px">
+          ${devs.map(d => miDeviceCardShell(d)).join('')}
+        </div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:12px">
-        ${devs.map(d => miDeviceCardShell(d)).join('')}
-      </div>
-    </div>
-  `).join('');
+    `).join('');
+    liveEl.dataset.miDeviceSignature = signature;
 
-  // Wire remove / move buttons once (card bodies update separately, so listeners survive)
-  liveEl.querySelectorAll('.mi-remove-device-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('確定移除此設備監控？')) return;
-      await miHomeJson(`/api/mi-home/devices/${btn.dataset.id}`, { method: 'DELETE' });
-      await loadMiHome();
-    });
-  });
-  liveEl.querySelectorAll('.mi-move-device-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const next = prompt('移動到群組（留空代表未分組）', btn.dataset.group || '');
-      if (next === null) return;
-      await apiFetch(`/api/mi-home/devices/${btn.dataset.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupName: next.trim() }),
+    // Wire remove / move buttons once (card bodies update separately, so listeners survive)
+    liveEl.querySelectorAll('.mi-remove-device-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('確定移除此設備監控？')) return;
+        await miHomeJson(`/api/mi-home/devices/${btn.dataset.id}`, { method: 'DELETE' });
+        await loadMiHome();
       });
-      await loadMiHome();
     });
-  });
+    liveEl.querySelectorAll('.mi-move-device-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const next = prompt('移動到群組（留空代表未分組）', btn.dataset.group || '');
+        if (next === null) return;
+        await apiFetch(`/api/mi-home/devices/${btn.dataset.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupName: next.trim() }),
+        });
+        await loadMiHome();
+      });
+    });
+  }
 
   let totalKwh = 0;
   let totalWatts = 0;
@@ -3479,7 +3486,7 @@ function renderMiInstantChart(points) {
   if (empty) empty.style.display = 'none';
   canvas.parentElement.style.display = '';
   const textColor = document.body.classList.contains('dark') ? '#ccc' : '#555';
-  mkChart('mi-instant-chart', {
+  const config = {
     type: 'line',
     data: {
       labels: rows.map(r => String(r.minute || '').slice(11) || r.minute),
@@ -3499,11 +3506,18 @@ function renderMiInstantChart(points) {
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} W` } } },
       scales: { y: { beginAtZero: true, ticks: { color: textColor }, grid: { color: textColor + '22' } }, x: { ticks: { color: textColor, maxTicksLimit: 16 } } },
     },
-  });
+  };
+  if (_charts['mi-instant-chart']) {
+    _charts['mi-instant-chart'].data = config.data;
+    _charts['mi-instant-chart'].options = config.options;
+    _charts['mi-instant-chart'].update('none');
+  } else {
+    mkChart('mi-instant-chart', config);
+  }
   updateMiVizPanel();
 }
 
-async function renderMiCharts() {
+async function renderMiCharts({ refreshHistoryCharts = true } = {}) {
   const stats = await miHomeJson('/api/mi-home/stats').catch(() => ({ instantTrend: [], weekly: [], monthly: [], history: [] }));
   const toggleBox = (id, show) => { const el = document.getElementById(id); if (el) el.style.display = show ? '' : 'none'; };
   toggleBox('mi-box-instant', true);
@@ -3512,6 +3526,7 @@ async function renderMiCharts() {
   toggleBox('mi-box-history', (stats.history || []).length);
   updateMiVizPanel();
   renderMiInstantChart(stats.instantTrend || []);
+  if (!refreshHistoryCharts) return;
   if (!((stats.weekly || []).length || (stats.monthly || []).length || (stats.history || []).length)) return;
   const textColor = document.body.classList.contains('dark') ? '#ccc' : '#555';
   const barCfg = (labels, data, label) => ({
