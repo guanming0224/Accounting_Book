@@ -1905,6 +1905,32 @@ async function startWebServer() {
     return { haUrl: urlRow?.value || '', haToken: tokenRow?.value || '' };
   }
 
+  function parseHaTimestamp(value: unknown): string | null {
+    const date = new Date(String(value || ''));
+    if (Number.isNaN(date.getTime())) return null;
+    return sqliteDate(date);
+  }
+
+  function parseHaNumericState(state: unknown): number | null {
+    const value = Number.parseFloat(String(state ?? ''));
+    return Number.isFinite(value) ? value : null;
+  }
+
+  async function fetchHaEntityHistory(entityId: string, haUrl: string, haToken: string) {
+    const start = encodeURIComponent('1970-01-01T00:00:00Z');
+    const entity = encodeURIComponent(entityId);
+    const payload = await haFetch(`/api/history/period/${start}?filter_entity_id=${entity}&no_attributes`, haUrl, haToken);
+    const groups = Array.isArray(payload) ? payload.filter(Array.isArray) : [];
+    const rows = groups.find(group => group.some((row: any) => row?.entity_id === entityId)) || groups[0] || [];
+    return rows
+      .map((row: any) => ({
+        recordedAt: parseHaTimestamp(row.last_changed || row.last_updated),
+        value: parseHaNumericState(row.state),
+      }))
+      .filter((row: any) => row.recordedAt && row.value !== null)
+      .sort((a: any, b: any) => String(a.recordedAt).localeCompare(String(b.recordedAt)));
+  }
+
   // Save HA connection config
   app.post('/api/mi-home/ha-config', asyncHandler(async (req, res) => {
     if (!requireAuth(req, res)) return;
@@ -2068,6 +2094,78 @@ async function startWebServer() {
       'SELECT id, name, powerEntityId, energyEntityId, groupName, createdAt FROM mi_devices WHERE userId = ? ORDER BY groupName ASC, createdAt ASC',
       [userId]
     ));
+  }));
+
+  app.post('/api/mi-home/import-history', asyncHandler(async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    const userId = await resolveUserId(req);
+    const { haUrl, haToken } = await getHaConfig();
+    if (!haUrl || !haToken) throw new Error('HA_NOT_CONFIGURED');
+    const devices = await db.all<any>(
+      'SELECT id, name, powerEntityId, energyEntityId FROM mi_devices WHERE userId = ? ORDER BY createdAt ASC',
+      [userId]
+    );
+    if (!devices.length) throw new Error('NO_MONITORED_DEVICES');
+
+    let imported = 0;
+    let skipped = 0;
+    const details: any[] = [];
+
+    for (const device of devices) {
+      if (!device.powerEntityId) {
+        details.push({ deviceId: device.id, name: device.name, imported: 0, skipped: 0, reason: 'NO_POWER_ENTITY' });
+        continue;
+      }
+
+      const powerHistory = await fetchHaEntityHistory(device.powerEntityId, haUrl, haToken);
+      const energyHistory = device.energyEntityId
+        ? await fetchHaEntityHistory(device.energyEntityId, haUrl, haToken)
+        : [];
+      let energyIndex = 0;
+      let deviceImported = 0;
+      let deviceSkipped = 0;
+
+      await db.run('BEGIN');
+      try {
+        for (const point of powerHistory) {
+          while (
+            energyIndex + 1 < energyHistory.length &&
+            String(energyHistory[energyIndex + 1].recordedAt) <= String(point.recordedAt)
+          ) {
+            energyIndex++;
+          }
+          const totalKwh = energyHistory.length && String(energyHistory[energyIndex].recordedAt) <= String(point.recordedAt)
+            ? energyHistory[energyIndex].value
+            : 0;
+          const result = await db.run(
+            `INSERT INTO mi_power_readings (deviceId, watts, totalKwh, recordedAt)
+             SELECT ?, ?, ?, ?
+             WHERE NOT EXISTS (
+               SELECT 1 FROM mi_power_readings WHERE deviceId = ? AND recordedAt = ?
+             )`,
+            [device.id, point.value, totalKwh, point.recordedAt, device.id, point.recordedAt]
+          );
+          if (result.changes) deviceImported++;
+          else deviceSkipped++;
+        }
+        await db.run('COMMIT');
+      } catch (err) {
+        await db.run('ROLLBACK').catch(() => {});
+        throw err;
+      }
+
+      imported += deviceImported;
+      skipped += deviceSkipped;
+      details.push({
+        deviceId: device.id,
+        name: device.name,
+        imported: deviceImported,
+        skipped: deviceSkipped,
+        sourceRows: powerHistory.length,
+      });
+    }
+
+    res.json({ ok: true, imported, skipped, devices: details.length, details });
   }));
 
   // Update a monitored device (rename / move to another group)

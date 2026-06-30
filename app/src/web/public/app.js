@@ -4635,6 +4635,24 @@ document.querySelector('#trend-months').addEventListener('change', async () => {
     showStatus('Home Assistant 連線設定已清除');
   });
   document.getElementById('mi-fetch-entities-btn')?.addEventListener('click', fetchHaEntities);
+  document.getElementById('mi-ha-import-history-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('mi-ha-import-history-btn');
+    const status = document.getElementById('mi-ha-import-history-status');
+    if (!confirm('將從 Home Assistant 匯入目前 recorder 還保留的所有歷史用電資料，可能需要一段時間。要繼續嗎？')) return;
+    btn.disabled = true;
+    if (status) status.textContent = '匯入中...';
+    try {
+      const result = await miHomeJson('/api/mi-home/import-history', { method: 'POST' });
+      if (status) status.textContent = `已匯入 ${result.imported || 0} 筆，略過 ${result.skipped || 0} 筆`;
+      if (state.currentView === 'mi-home') await refreshMiHomeData();
+      showStatus(`HA 歷史資料匯入完成：新增 ${result.imported || 0} 筆`);
+    } catch (err) {
+      if (status) status.textContent = '匯入失敗';
+      showStatus(err.message || '匯入 HA 歷史資料失敗', true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
   document.getElementById('mi-ha-add-btn')?.addEventListener('click', async () => {
     const name = document.getElementById('mi-ha-device-name').value.trim();
     const powerEntityId = document.getElementById('mi-ha-power-select').value;
