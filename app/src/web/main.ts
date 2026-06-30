@@ -2284,7 +2284,7 @@ async function startWebServer() {
          ORDER BY second DESC
          LIMIT 48
        )
-       SELECT second as minute, watts
+       SELECT datetime(second, '+8 hours') as minute, watts
        FROM second_totals
        ORDER BY second ASC`,
       deviceIds
